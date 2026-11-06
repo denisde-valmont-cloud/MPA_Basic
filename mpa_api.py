@@ -145,6 +145,7 @@ def assure_view(a, store):
         "pmv_blocage": core.pmv_blocage(store, a.id),
         "rib": env.iban if env else "",
         "pmv": pmv_view(env),
+        "barometre": core.barometre(store, a.id),
         "contacts": [jsonable(c) for c in store.contacts if c.assure_id == a.id],
     }
 
@@ -480,6 +481,33 @@ class Handler(BaseHTTPRequestHandler):
                         return self._json({"text": txt})
                     except Exception:
                         return self._json({"text": None})
+
+                # — Baromètre aidant : lecture personnalisée par l'assistant —
+                if parts == ["api", "barometre"]:
+                    sys_p = (
+                        "Tu accompagnes un aidant familial dans le cadre d'une garantie "
+                        "de soutien aux aidants. On te donne son « baromètre aidant » : "
+                        "un positionnement global (zone verte/orange/rouge) décliné par "
+                        "dimension (charge d'aide, charge mentale, santé & répit, vie "
+                        "professionnelle, entourage & relais, budget & droits), avec les "
+                        "facteurs qui pèsent et les points d'appui — y compris des "
+                        "signaux d'usage de son porte-monnaie (services mobilisés, "
+                        "remboursements). Rédige en français une lecture chaleureuse et "
+                        "factuelle en 4 phrases maximum, en le vouvoyant : (1) reconnais "
+                        "la situation d'ensemble sans dramatiser ni minimiser ; "
+                        "(2) nomme LA dimension la plus en tension et ce qui l'explique ; "
+                        "(3) souligne un appui réel (surtout ce qu'il a déjà mobilisé) ; "
+                        "(4) propose UN pas concret cohérent avec la zone (vert : "
+                        "anticiper ; orange : demander de l'aide ; rouge : se protéger "
+                        "et solliciter le conseiller). Aucun diagnostic médical, aucun "
+                        "chiffre inventé, aucun prestataire nommé, pas de culpabilisation."
+                    )
+                    try:
+                        txt = core.anticiper_prompt(body.get("prompt", ""),
+                                                    system=sys_p, max_tokens=300)
+                        return self._json({"texte": txt})
+                    except Exception:
+                        return self._json({"texte": None})
 
                 # — Assistant IA : bilan situationnel (F-44) —
                 if parts == ["api", "analyse", "generer"]:

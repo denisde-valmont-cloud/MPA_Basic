@@ -109,6 +109,11 @@ GM={kind:null};
   api=async(m,p,b)=>({texte:null});
   await aidGenererAnalyse();
   const bilanOk = AID.analyseLoading===false && (AID.analyseTexte||"").length>0 && AID.analyseEdit===true;
+  // baromètre : lecture, repli local (cite la dimension la plus en tension)
+  AID=aidSeed(); AID.boundTo=READY.id; AIDANT_ID=READY.id;
+  api=async(m,p,b)=>({texte:null});
+  await baroLecture();
+  const baroOk = AID.baroLoading===false && (AID.baroTexte||"").includes("santé & répit");
 
   const checks={
     "equations F-43": /Crédit cumulé/.test(out.pmvremb) && /= solde/.test(out.pmvremb) && /disponible/.test(out.pmvremb),
@@ -147,6 +152,12 @@ GM={kind:null};
     "gest emails simulés": /Activez votre espace|Demande de devis/.test(out.gEmails),
     "gest exports 4 CSV": (out.gExports.match(/\.csv/g)||[]).length>=4,
     "aidEvaluer repli": evalOk, "aidEvaluer llm": evalOk2, "bilan repli local": bilanOk,
+    "barometre carte (gauge global + 6 dimensions)": /Mon baromètre aidant/.test(out.accueil) && /aria-label="Baromètre aidant/.test(out.accueil) && /Charge mentale/.test(out.accueil) && /Budget &(amp;)? droits/.test(out.accueil),
+    "barometre détail dimension (accordéon)": (()=>{AID.baroDim="sante"; const s2=aidAccueil(READY); AID.baroDim=null; return /Fatigue élevée/.test(s2);})(),
+    "barometre mention usage": /service\(s\) mobilisé/.test(out.accueil),
+    "barometre invite si profil vide": /Complétez votre profil .écran « Dossier ».( pour afficher votre positionnement)/.test(out.accueil_verrou.replace(/\s+/g," ")),
+    "barometre conseiller en zone chaude": /a-contact-open/.test(out.accueil),
+    "barometre lecture repli": baroOk,
   };
   const bad=Object.entries(checks).filter(([k,v])=>!v);
   console.log("@@@"+JSON.stringify({nvues:Object.keys(out).length,

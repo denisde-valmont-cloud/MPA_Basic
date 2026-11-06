@@ -774,6 +774,7 @@ function aidSeed(){ return {
   profilEdit:false, pfdEdit:null, pfdAddOpen:false,
   analyseTexte:"", analyseEdit:false, analyseLoading:false,
   justif:null, contesteId:null, catTitre:"",
+  baroTexte:"", baroLoading:false, baroDim:null,
 }; }
 let AID = aidSeed();
 
@@ -826,6 +827,114 @@ function viewAidant(){
   return `<div style="max-width:980px;margin:0 auto">${demo}${dosbar}${tabs}${panel}</div>`;
 }
 
+
+/* — Mon baromètre aidant : global 3 zones + 6 dimensions (charge d'aide,
+     charge mentale, santé & répit, vie pro, entourage, budget & droits),
+     calculé sur les profils ET les signaux d'usage du PMV ; lecture par
+     l'assistant. Repère indicatif, jamais un diagnostic. — */
+const BARO_Z={vert:["#2E7D5B","#E5F2EB"],orange:["#C98A2D","#FCF3E2"],rouge:["#C0492F","#FBEDEC"]};
+function baroGauge(m){
+  const H=176,W=206,x=56,w=28,top=12;           // thermomètre global : rouge en haut
+  const segs=[["rouge",0,0.40,"Me protéger"],["orange",0.40,0.70,"Demander de l'aide"],["vert",0.70,1,"Se renseigner"]];
+  const y=s=>top+(1-s/100)*H;
+  const rects=segs.map(([z,a,b])=>`<rect x="${x}" y="${top+a*H}" width="${w}" height="${(b-a)*H-3}" rx="8" fill="${BARO_Z[z][0]}"/>`).join("");
+  const labels=segs.map(([z,a,b,lab])=>`<text x="${x+w+9}" y="${top+(a+b)/2*H+4}" font-size="10.5" font-weight="${z===m.zone?800:500}" fill="${z===m.zone?'var(--ink)':'var(--muted)'}">${lab}${z===m.zone?" ◂":""}</text>`).join("");
+  const cy=y(m.score);
+  return `<svg width="${W}" height="${H+40}" viewBox="0 0 ${W} ${H+40}" role="img" aria-label="Baromètre aidant : ${m.score} sur 100, zone ${m.zone}">
+    ${rects}
+    <circle cx="${x+w/2}" cy="${top+H+11}" r="14" fill="${BARO_Z[m.zone][0]}"/>
+    <circle cx="${x+w/2}" cy="${top+H+11}" r="14" fill="none" stroke="#fff" stroke-width="2.5"/>
+    ${labels}
+    <text x="${x-22}" y="${cy+5}" font-size="16" font-weight="800" fill="var(--ink)" text-anchor="end">${m.score}</text>
+    <polygon points="${x-3},${cy} ${x-15},${cy-7} ${x-15},${cy+7}" fill="var(--ink)"/>
+    <line x1="${x-1}" y1="${cy}" x2="${x+w+3}" y2="${cy}" stroke="var(--ink)" stroke-width="2.5"/>
+  </svg>`;
+}
+function baroMini(d){
+  if(d.na) return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:10px;opacity:.5">
+    <span style="flex:0 0 150px;font-size:12px;font-weight:600">${esc(d.libelle)}</span>
+    <span class="muted" style="font-size:11px">non concerné(e)</span></div>`;
+  const W=130,hbar=10;
+  const px=s=>Math.round(s/100*W);
+  const open=AID.baroDim===d.id;
+  const chips=(arr,pre,color,bgc)=>arr.map(t=>`<span class="chip" style="color:${color};background:${bgc};font-weight:600">${pre} ${esc(t)}</span>`).join(" ");
+  const detail=open?`<div style="padding:4px 10px 10px 170px;display:flex;gap:5px;flex-wrap:wrap">
+      ${chips(d.pese,"▲","var(--goldDk)","var(--goldLt)")}${chips(d.appuis,"▽","var(--good)","var(--tealLt)")}
+      ${(!d.pese.length&&!d.appuis.length)?'<span class="muted" style="font-size:11px">Rien de notable.</span>':""}</div>`:"";
+  return `<div>
+    <button data-act="a-baro-dim" data-id="${esc(d.id)}" style="display:flex;align-items:center;gap:10px;width:100%;padding:7px 10px;border:none;border-radius:10px;background:${open?'var(--paper)':'transparent'};cursor:pointer;text-align:left;font-family:inherit">
+      <span style="flex:0 0 150px;font-size:12px;font-weight:700;color:var(--ink)">${esc(d.libelle)}</span>
+      <svg width="${W}" height="${hbar+8}" style="flex:0 0 auto">
+        <rect x="0" y="4" width="${W*.3}" height="${hbar}" rx="5" fill="#2E7D5B" opacity=".35"/>
+        <rect x="${W*.3}" y="4" width="${W*.3}" height="${hbar}" rx="0" fill="#C98A2D" opacity=".35"/>
+        <rect x="${W*.6}" y="4" width="${W*.4}" height="${hbar}" rx="5" fill="#C0492F" opacity=".35"/>
+        <line x1="${px(d.score)}" y1="0" x2="${px(d.score)}" y2="${hbar+8}" stroke="${BARO_Z[d.zone][0]}" stroke-width="3.5"/>
+      </svg>
+      <span style="flex:0 0 30px;font-size:12.5px;font-weight:800;color:${BARO_Z[d.zone][0]};text-align:right">${d.score}</span>
+      <span class="muted" style="font-size:10px">${open?"▴":"▾"}</span>
+    </button>${detail}</div>`;
+}
+function baroCard(a){
+  const m=a.barometre;
+  if(!m) return `<div class="card"><h2>Mon baromètre aidant <span class="sub">— où en êtes-vous, sujet par sujet ?</span></h2>
+    <div class="muted" style="font-size:12.5px">Complétez votre profil (écran « Dossier ») pour afficher votre positionnement. Il se construit uniquement à partir de vos réponses — rien de plus à saisir.</div></div>`;
+  const [cz,bg]=BARO_Z[m.zone];
+  const lecture = AID.baroTexte
+    ? `<div style="margin-top:10px;padding:11px 13px;border-radius:11px;background:var(--paper);font-size:12.5px;line-height:1.55">💬 ${esc(AID.baroTexte)}</div>`
+    : `<button class="btn ghost" data-act="a-baro-lecture" ${AID.baroLoading?'disabled':''} style="margin-top:10px">${AID.baroLoading?"Lecture en cours…":"✦ Lecture personnalisée par l'assistant"}</button>`;
+  const conseiller=(m.zone!=="vert")?` <button class="btn gold" data-act="a-contact-open" style="margin-top:10px">💬 En parler à un conseiller</button>`:"";
+  return `<div class="card" style="border:1px solid ${cz}">
+    <h2>Mon baromètre aidant <span class="sub">— où en êtes-vous, sujet par sujet ? Cliquez sur une dimension pour le détail</span></h2>
+    <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:0 0 auto">${baroGauge(m)}
+        <div style="margin-top:2px;max-width:206px"><div style="display:inline-block;padding:6px 12px;border-radius:999px;background:${bg};color:${cz};font-weight:800;font-size:13px">${esc(m.titre)}</div>
+        <div style="font-size:11.5px;line-height:1.45;margin-top:6px;color:var(--ink)">${esc(m.action)}</div></div>
+      </div>
+      <div style="flex:1 1 330px">
+        <div style="display:grid;gap:2px">${m.dimensions.map(baroMini).join("")}</div>
+        ${lecture}${conseiller}
+        <div class="muted" style="font-size:10.5px;margin-top:10px;line-height:1.5">Repère indicatif établi à partir de vos déclarations${m.pfd_profil?"":" (complétez le profil de votre proche pour l'affiner)"} — ce n'est pas un avis médical. ${m.usage&&m.usage.nb_services?`Il intègre l'usage de votre PMV (${m.usage.nb_services} service(s) mobilisé(s)${m.usage.nb_rembourses?`, ${m.usage.nb_rembourses} remboursement(s)`:""}) et s'affinera à chaque nouvelle étape.`:"Il s'affinera avec l'usage de votre PMV (services mobilisés, remboursements)."}</div>
+      </div></div></div>`;
+}
+
+async function baroLecture(){
+  const a=aidCur(); if(!a||!a.barometre) return;
+  const m=a.barometre;
+  AID.baroLoading=true; render();
+  const dimsTxt=m.dimensions.filter(d=>!d.na).map(d=>`- ${d.libelle} : ${d.score}/100 (${d.zone})
+    pèse : ${d.pese.join(" ; ")||"—"}
+    appuis : ${d.appuis.join(" ; ")||"—"}`).join("\n");
+  const prompt=`BAROMÈTRE AIDANT — global : ${m.score}/100, zone ${m.zone} (${m.titre}).
+Dimensions :
+${dimsTxt}
+
+PROFIL DE L'AIDANT :
+${profilAidantTxt(a.profil)}
+
+PROFIL DU PROCHE :
+${profilPfdTxt(a.aides||[])}
+
+Rédige la lecture demandée (4 phrases maximum).`;
+  try{
+    const r=await api("POST","/api/barometre",{prompt});
+    if(!r||r.texte==null) throw new Error("repli");
+    AID.baroTexte=String(r.texte).trim();
+  }catch(_){
+    const actifs=m.dimensions.filter(d=>!d.na);
+    const top=actifs.slice().sort((x,y)=>y.score-x.score)[0];
+    const deb={vert:"Votre situation d'aidant apparaît aujourd'hui équilibrée.",
+      orange:"Votre rôle d'aidant pèse réellement sur votre quotidien.",
+      rouge:"Votre situation d'aidant est lourde et vous expose."}[m.zone];
+    const dim=top?` Le point le plus en tension : ${top.libelle.toLowerCase()} (${top.score}/100${top.pese.length?` — ${top.pese[0].toLowerCase()}`:""}).`:"";
+    const appui=(top&&top.appuis.length)?` Appuyez-vous sur ce qui existe déjà : ${top.appuis[0].toLowerCase()}.`:"";
+    const pas={vert:" C'est le bon moment pour vous renseigner et anticiper la suite.",
+      orange:" Parlez-en à un conseiller : des solutions de répit et d'appui existent, votre PMV est là pour ça.",
+      rouge:" Demandez de l'aide sans attendre — contactez votre conseiller : prendre soin de vous fait partie de l'aide."}[m.zone];
+    AID.baroTexte=deb+dim+appui+pas+" (Lecture type — l'assistant IA n'était pas disponible.)";
+  }
+  AID.baroLoading=false; render();
+}
+
 /* — Accueil : actions prioritaires, catégories retenues, PMV en bref (F-40, F-46, F-50) — */
 function aidActionsPrioritaires(a){
   const out=[];
@@ -867,7 +976,7 @@ function aidAccueil(a){
         <span style="color:var(--teal);font-weight:700;font-size:12.5px">Voir les professionnels ›</span></button>`).join("")}</div></div>`
     :`<div class="card"><h2>Mon parcours</h2><div class="muted" style="font-size:12.5px">Aucune catégorie retenue pour le moment. Passez par « Ma situation » pour évaluer vos besoins — ou consultez librement le catalogue dans « Trouver un pro ».</div>
       <div class="row" style="margin-top:10px"><button class="btn teal" data-act="a-tab" data-tab="fiche">Évaluer mes besoins</button><button class="btn ghost" data-act="a-tab" data-tab="trouver">Parcourir le catalogue</button></div></div>`;
-  return `${bloc}${actions}${parcours}
+  return `${bloc}${actions}${baroCard(a)}${parcours}
     <div class="card"><h2>Mon PMV en bref <span class="sub">— détail et historique dans « Mon PMV & remboursements »</span></h2>${pmvStrip5(a.pmv,true)}</div>`;
 }
 
@@ -1488,6 +1597,8 @@ document.addEventListener("click", async (e)=>{
     if(act==="a-besoin-ecarter"){ const i=Number(b.dataset.i); AID.besoins=AID.besoins.filter((_,k)=>k!==i); render(); return; }
     if(act==="a-parcours-pro"){ const fam=A_TAXO_FAMILLE[b.dataset.cat]; AID.cat={famille:fam||"",metier:"",modalite:"",dept:""}; AID.catTitre=A_TAXO_LABEL(b.dataset.cat); AID.tab="trouver"; render(); return; }
     if(act==="a-analyse-generer"){ await aidGenererAnalyse(); return; }
+    if(act==="a-baro-lecture"){ await baroLecture(); return; }
+    if(act==="a-baro-dim"){ AID.baroDim=(AID.baroDim===b.dataset.id?null:b.dataset.id); render(); return; }
     if(act==="a-analyse-valider"){ const t=($("#a-analyse-txt")&&$("#a-analyse-txt").value)||""; if(!t.trim()){ toast("Le bilan est vide",true); return; }
       await api("POST","/api/assures/"+AIDANT_ID+"/analyse",{texte:t});
       AID.analyseEdit=false; AID.analyseTexte=""; await refresh(); toast("Bilan validé — seule cette version est stockée (F-44)"); return; }

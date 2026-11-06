@@ -909,6 +909,297 @@ def exporter(store: Store, quoi: str) -> str:
     return _csv(rows)
 
 
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Mon baromètre aidant — repère visuel par dimension                   ║
+# ║  3 zones d'action (Se renseigner · Demander de l'aide · Me protéger), ║
+# ║  global + 6 dimensions, calcul DÉTERMINISTE et transparent sur les    ║
+# ║  profils déjà saisis (aucune nouvelle question) ; lecture             ║
+# ║  personnalisée par l'assistant. Repère indicatif — jamais un          ║
+# ║  diagnostic (RG-62). Chaque ligne du barème est explicite ci-dessous. ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+def _zone(score):
+    if score < 30:
+        return "vert"
+    return "orange" if score < 60 else "rouge"
+
+
+ZONES_BAROMETRE = {
+    "vert": ("Équilibre préservé", "Se renseigner et anticiper : c'est le bon moment pour préparer la suite."),
+    "orange": ("Vigilance", "Il y a un risque pour votre santé : c'est le moment de demander de l'aide."),
+    "rouge": ("Protégez-vous", "Demandez de l'aide sans attendre — vous compter aussi fait partie de l'aide."),
+}
+
+
+def barometre(store: Store, assure_id: str) -> Optional[dict]:
+    a = store.assures.get(assure_id)
+    if a is None or not a.profil:
+        return None
+    p = a.profil or {}
+    princ = next((x for x in a.aides if x.principal), None)
+    q = (princ.profil if princ else {}) or {}
+    g = lambda k: str(p.get(k) or "")
+    gq = lambda k: str(q.get(k) or "")
+    taches = p.get("taches") or []
+    avq = q.get("avq") or []
+    risques = q.get("risques") or []
+
+    class Dim:
+        def __init__(self, id_, libelle, maxi):
+            self.id, self.libelle, self.maxi = id_, libelle, maxi
+            self.pts = 0
+            self.pese, self.appuis = [], []
+            self.na = False
+        def agg(self, pts, lib):
+            self.pts += pts
+            self.pese.append((pts, lib))
+        def pro(self, pts, lib):
+            self.pts -= pts
+            self.appuis.append((pts, lib))
+        def out(self):
+            if self.na:
+                return {"id": self.id, "libelle": self.libelle, "na": True,
+                        "score": None, "zone": None, "pese": [], "appuis": []}
+            sc = max(0, min(100, round(100 * self.pts / self.maxi)))
+            self.pese.sort(key=lambda x: -x[0]); self.appuis.sort(key=lambda x: -x[0])
+            return {"id": self.id, "libelle": self.libelle, "na": False,
+                    "score": sc, "zone": _zone(sc),
+                    "pese": [l for _, l in self.pese[:4]],
+                    "appuis": [l for _, l in self.appuis[:3]]}
+
+    # ── D1 · Charge d'aide (volume et intensité de l'aide apportée) ──
+    d1 = Dim("charge", "Charge d'aide", 40)
+    h = g("heures")
+    if "Plus de 40" in h: d1.agg(16, "Plus de 40 h d'aide par semaine")
+    elif "20 à 40" in h: d1.agg(12, "20 à 40 h d'aide par semaine")
+    elif "10 à 20" in h: d1.agg(8, "10 à 20 h d'aide par semaine")
+    elif "4 à 10" in h: d1.agg(4, "4 à 10 h d'aide par semaine")
+    n = g("nuit")
+    if "régulièrement" in n: d1.agg(8, "Aide la nuit, régulièrement")
+    elif "ponctuellement" in n: d1.agg(4, "Aide la nuit, ponctuellement")
+    if g("cohabite").startswith("Oui"): d1.agg(3, "Vous vivez avec votre proche")
+    if "Plus d'1 h" in g("distance"): d1.agg(3, "Plus d'une heure de trajet")
+    if len(taches) >= 4: d1.agg(6, f"{len(taches)} types de tâches assumés")
+    elif len(taches) >= 2: d1.agg(3, f"{len(taches)} types de tâches assumés")
+    if len(avq) >= 5: d1.agg(8, f"{len(avq)} actes du quotidien à soutenir")
+    elif len(avq) >= 3: d1.agg(5, f"{len(avq)} actes du quotidien à soutenir")
+    elif len(avq) >= 1: d1.agg(2, f"{len(avq)} acte(s) du quotidien à soutenir")
+    mo = gq("mobilite")
+    if "Alité" in mo: d1.agg(6, "Proche alité la majeure partie du temps")
+    elif "Fauteuil" in mo: d1.agg(4, "Proche en fauteuil roulant")
+    elif "Aide technique" in mo: d1.agg(2, "Proche aidé dans ses déplacements")
+    if "Plus de 5" in g("anciennete"): d1.agg(3, "Aidant depuis plus de 5 ans")
+    if p.get("aidesh"): d1.pro(3, "Des aides humaines interviennent déjà")
+
+    # ── D2 · Charge mentale (vigilance, coordination, « y penser pour deux ») ──
+    d2 = Dim("mentale", "Charge mentale", 35)
+    cg = gq("cognitif")
+    if "importants" in cg: d2.agg(8, "Troubles cognitifs importants : vigilance constante")
+    elif "légers" in cg: d2.agg(4, "Troubles cognitifs légers du proche")
+    if "Errance / désorientation" in risques: d2.agg(5, "Risque d'errance : l'esprit jamais tranquille")
+    if "Sécurité du domicile" in risques: d2.agg(3, "Inquiétude sur la sécurité du domicile")
+    autres = [x for x in risques if x not in ("Épuisement de l'aidant", "Errance / désorientation", "Sécurité du domicile")]
+    if autres: d2.agg(min(len(autres), 3), "Autres risques à surveiller : " + ", ".join(autres[:2]))
+    if "Démarches administratives" in taches: d2.agg(4, "Vous portez les démarches administratives")
+    if "Soins / surveillance" in taches: d2.agg(4, "Vous assurez soins et surveillance")
+    if g("role") == "Aidant principal": d2.agg(3, "Vous êtes l'aidant principal")
+    if "seul aidant" in g("coaidants"): d2.agg(4, "Personne avec qui partager les décisions")
+    if "régulièrement" in n: d2.agg(4, "Nuits fractionnées par l'aide")
+    elif "ponctuellement" in n: d2.agg(2, "Sommeil parfois interrompu par l'aide")
+    iso = gq("isolement")
+    if iso == "Fort": d2.agg(4, "Proche très isolé : tout repose sur vous")
+    elif iso == "Modéré": d2.agg(2, "Proche plutôt isolé")
+    if q.get("aidesh"): d2.pro(2, "Des professionnels partagent la surveillance")
+
+    # ── D3 · Santé & répit (impact sur votre santé, capacité à souffler) ──
+    d3 = Dim("sante", "Santé & répit", 35)
+    f = g("fatigue")
+    if f == "Élevée": d3.agg(14, "Fatigue élevée")
+    elif f == "Modérée": d3.agg(6, "Fatigue modérée")
+    s_ = g("sante")
+    if s_ == "Altérée": d3.agg(8, "Votre santé est altérée")
+    elif s_ == "Moyenne": d3.agg(4, "Votre santé est moyenne")
+    r = g("relais")
+    if "Aucun relais" in r: d3.agg(8, "Aucun relais pour souffler")
+    elif "parfois" in r: d3.agg(4, "Relais seulement occasionnel")
+    elif "facilement" in r: d3.pro(3, "Un relais est possible facilement")
+    if "Épuisement de l'aidant" in risques: d3.agg(5, "Risque d'épuisement identifié")
+    if "régulièrement" in n: d3.agg(4, "Sommeil amputé régulièrement")
+    elif "ponctuellement" in n: d3.agg(2, "Sommeil parfois amputé")
+    if p.get("aidesh"): d3.pro(2, "Des aides humaines allègent le quotidien")
+
+    # ── D4 · Vie professionnelle (concilier travail et aide) ──
+    d4 = Dim("pro", "Vie professionnelle", 25)
+    statut = g("statutpro")
+    if statut in ("Retraité(e)", "Au foyer", "Demandeur d'emploi", ""):
+        d4.na = True
+    else:
+        fx = g("flex")
+        if fx == "Aucune flexibilité": d4.agg(6, "Aucune flexibilité d'horaires")
+        elif fx == "Faible": d4.agg(5, "Faible flexibilité d'horaires")
+        po = g("poste")
+        if any(k in po for k in ("posté", "nuit", "variables")): d4.agg(4, "Horaires contraignants (" + po.lower() + ")")
+        if g("temps") == "Temps plein" and any(k in h for k in ("10 à 20", "20 à 40", "Plus de 40")):
+            d4.agg(4, "Temps plein + " + h.lower() + " d'aide")
+        if g("temps") == "Temps partiel": d4.agg(2, "Activité réduite (temps partiel)")
+        if g("contrat") in ("CDD", "Intérim"): d4.agg(2, "Contrat " + g("contrat"))
+        if p.get("amenage"): d4.pro(3, "Aménagements obtenus : " + ", ".join(p.get("amenage")[:2]))
+        else: d4.agg(3, "Aucun aménagement professionnel en place")
+
+    # ── D5 · Entourage & relais (êtes-vous seul·e à porter ?) ──
+    d5 = Dim("entourage", "Entourage & relais", 25)
+    c = g("coaidants")
+    if "seul aidant" in c: d5.agg(8, "Vous êtes seul(e) à aider")
+    elif "un autre" in c: d5.agg(2, "Un seul co-aidant"); d5.pro(2, "Un co-aidant à vos côtés")
+    elif "plusieurs" in c: d5.pro(3, "Plusieurs co-aidants à vos côtés")
+    if "Aucun relais" in r: d5.agg(8, "Aucun relais possible")
+    elif "parfois" in r: d5.agg(4, "Relais seulement occasionnel")
+    elif "facilement" in r: d5.pro(3, "Relais facile à organiser")
+    if iso == "Fort": d5.agg(4, "Le proche n'a que vous")
+    elif iso == "Modéré": d5.agg(2, "Entourage du proche limité")
+    if gq("entourage"): d5.pro(2, "D'autres proches présents : " + gq("entourage")[:40])
+    if q.get("aidesh"): d5.pro(2, "Des professionnels interviennent auprès du proche")
+
+    # ── D6 · Budget & droits (les dispositifs sont-ils mobilisés ?) ──
+    #    NB maquette : sans donnée de reste à charge ni de perte de revenus,
+    #    on mesure la MOBILISATION DES DROITS, pas l'impact financier réel.
+    d6 = Dim("budget", "Budget & droits", 20)
+    if not p.get("aidesf") and not p.get("aidesf_autre"):
+        d6.agg(5, "Aucune aide financière d'aidant mobilisée (AJPA, CESU…)")
+    else:
+        d6.pro(2, "Aides d'aidant mobilisées : " + ", ".join((p.get("aidesf") or [])[:2]))
+    if not q.get("aidesf") and not q.get("aidesf_autre"):
+        d6.agg(5, "Aucune aide financière du proche mobilisée (APA, PCH…)")
+    else:
+        d6.pro(2, "Droits du proche activés : " + ", ".join((q.get("aidesf") or [])[:2]))
+    if not q.get("aidest"): d6.agg(2, "Aucune aide technique installée")
+    ad = gq("adapte")
+    if ad == "Non": d6.agg(3, "Logement non adapté : des financements existent")
+    elif ad == "En projet": d6.agg(1, "Adaptation du logement en projet")
+    if g("temps") == "Temps partiel": d6.agg(2, "Temps partiel : revenus possiblement réduits")
+
+    dims = [d.out() for d in (d1, d2, d3, d4, d5, d6)]
+
+    # ── Signaux d'usage : le baromètre S'AFFINE avec la vie du dossier ──
+    #    (services consommés, remboursements, contacts). Bornés à ±10 points
+    #    de score par dimension : le déclaratif reste dominant, et chaque
+    #    signal est AFFICHÉ en clair — jamais de scoring opaque.
+    usage = _signaux_usage(store, assure_id)
+    by_id = {d["id"]: d for d in dims}
+    for dim_id, delta, lib in usage["signaux"]:
+        d = by_id.get(dim_id)
+        if d is None or d["na"]:
+            continue
+        d.setdefault("_u", 0)
+        borne = max(-10 - d["_u"], min(10 - d["_u"], delta))
+        if borne == 0:
+            continue
+        d["_u"] += borne
+        d["score"] = max(0, min(100, d["score"] + borne))
+        cible = d["pese"] if borne > 0 else d["appuis"]
+        if sum(1 for x in cible if x.startswith(("Vous avez mobilisé", "Vos ", "Le PMV", "Votre PMV")) or "conseiller" in x or "30 jours" in x or "contestée" in x) < 2:
+            cible.append(lib)
+        d["zone"] = _zone(d["score"])
+    for d in dims:
+        d.pop("_u", None)
+
+    actifs = [d for d in dims if not d["na"]]
+    score = round(sum(d["score"] for d in actifs) / max(1, len(actifs)))
+    zone = _zone(score)
+    titre, action = ZONES_BAROMETRE[zone]
+    return {"score": score, "zone": zone, "titre": titre, "action": action,
+            "dimensions": dims, "pfd_profil": bool(q), "usage": usage["resume"]}
+
+
+# Famille de prestation consommée -> dimension soulagée
+_FAMILLE_DIM = {
+    "Aide administrative": ("mentale", "démarches prises en charge"),
+    "Aide psycho-affective": ("sante", "soutien psychologique en place"),
+    "Aide humaine": ("charge", "renfort humain à domicile"),
+    "Aide au parcours de soin": ("sante", "parcours de soin accompagné"),
+    "Aide au parcours de vie": ("mentale", "coordination assurée par un pro"),
+    "Aide matérielle": ("budget", "équipement financé"),
+}
+
+
+def _famille_dominante(p: "Prestation") -> Optional[str]:
+    """Famille la plus représentative d'une prestation. Certains pros du
+    catalogue cochent toutes les familles : on tranche alors par le nom."""
+    fams = p.familles or []
+    if not fams:
+        return None
+    if len(fams) <= 3:
+        return fams[0]
+    nom = (p.nom or "").lower()
+    for mots, fam in (
+        (("administrat", "démarche"), "Aide administrative"),
+        (("coordination", "parcours de vie", "projet de vie"), "Aide au parcours de vie"),
+        (("psycholog", "écoute", "soutien moral"), "Aide psycho-affective"),
+        (("soin", "infirmi", "médic"), "Aide au parcours de soin"),
+        (("matériel", "équipement", "aménagement", "téléassistance"), "Aide matérielle"),
+        (("garde", "nuit", "domicile", "ménage", "répit", "accompagnement"), "Aide humaine"),
+    ):
+        if any(m in nom for m in mots) and fam in fams:
+            return fam
+    return fams[0]
+
+
+def _signaux_usage(store: Store, assure_id: str) -> dict:
+    """Signaux comportementaux du dossier (liste de (dimension, ±points, libellé))."""
+    a = store.assures[assure_id]
+    devis = [d for d in store.devis.values() if d.assure_id == assure_id]
+    rembs = [r for r in store.remboursements.values() if r.assure_id == assure_id]
+    sig = []
+
+    # 1 · familles de services réellement mobilisées (engagé / réalisée / payé)
+    familles = []
+    for d in reversed(devis):               # consommations récentes d'abord
+        if d.statut not in ("engagé", "réalisée", "payé"):
+            continue
+        p = store.prestations.get(d.prestation_id)
+        fam = _famille_dominante(p) if p else None
+        if fam and fam not in familles:
+            familles.append(fam)
+    for fam in familles[:4]:
+        dim, lib = _FAMILLE_DIM.get(fam, ("charge", "service mobilisé"))
+        sig.append((dim, -3, f"Vous avez mobilisé votre PMV : {lib}"))
+
+    # 2 · remboursements validés ou payés : le PMV couvre les avances
+    couverts = [r for r in rembs if r.statut in ("validée", "payée")]
+    if couverts:
+        mots = (couverts[0].motif or couverts[0].libelle or "").lower()
+        if any(k in mots for k in ("transport", "taxi")):
+            sig.append(("charge", -2, "Vos transports liés à l'aide sont couverts"))
+        elif any(k in mots for k in ("repas", "portage")):
+            sig.append(("charge", -2, "Le portage de repas est couvert"))
+        else:
+            sig.append(("budget", -2, "Le PMV rembourse vos avances"))
+
+    # 3 · demandes rapprochées : la situation s'intensifie ?
+    import datetime as _dt
+    seuil = (_dt.date.today() - _dt.timedelta(days=30)).isoformat()
+    recentes = [d for d in devis if (d.date_demande or "") >= seuil]
+    if len(recentes) >= 3:
+        sig.append(("mentale", 3, f"{len(recentes)} demandes en 30 jours : besoin qui s'intensifie"))
+
+    # 4 · contestation en cours : une friction à résoudre
+    if any(d.statut == "contestée" for d in devis):
+        sig.append(("mentale", 2, "Une prestation contestée est en cours de traitement"))
+
+    # 5 · contact conseiller : vous n'êtes pas seul
+    if any(c.assure_id == assure_id for c in store.contacts):
+        sig.append(("entourage", -2, "Vous avez sollicité un conseiller"))
+
+    # 6 · non-recours doux : forte charge déclarée et PMV jamais mobilisé
+    p = a.profil or {}
+    if not familles and not couverts and (p.get("fatigue") == "Élevée" or p.get("sante") == "Altérée"):
+        sig.append(("sante", 4, "Votre PMV n'a pas encore servi — il est là pour vous soulager"))
+
+    return {"signaux": sig,
+            "resume": {"familles": familles, "nb_services": len([d for d in devis if d.statut in ("engagé", "réalisée", "payé")]),
+                       "nb_rembourses": len(couverts)}}
+
+
 # ╔══════════════════════════════════════════════════════════════════════╗
 # ║  Assistant IA — bilan (F-44) & évaluation des besoins (F-45, RG-60–63)║
 # ╚══════════════════════════════════════════════════════════════════════╝

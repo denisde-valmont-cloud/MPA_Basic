@@ -268,6 +268,23 @@ T("F-45/RG-63 besoins : LLM absent → null (repli client)", c == 200 and r["tex
 c, r, _ = req("POST", f"/api/assures/{paul}/analyse", {"texte": "Bilan validé par l'assuré-aidant."})
 T("F-44 seule la version validée est stockée", c == 200 and r["analyse"].startswith("Bilan validé"))
 
+# ── Baromètre aidant : 6 dimensions, déterministe (RG-63), nourri par l'usage ─
+_, acl, _ = req("GET", f"/api/assures/{cla['id']}")
+m = acl["barometre"]
+dims = {d["id"]: d for d in m["dimensions"]} if m else {}
+T("Baromètre global (Claire : vigilance) + 6 dimensions", bool(m) and m["zone"] == "orange"
+  and len(m["dimensions"]) == 6 and all(k in dims for k in ("charge", "mentale", "sante", "pro", "entourage", "budget")))
+T("Baromètre : dimensions différenciées (santé rouge, budget vert)",
+  dims and dims["sante"]["zone"] == "rouge" and dims["budget"]["zone"] == "vert"
+  and all((d["na"] or 0 <= d["score"] <= 100) for d in m["dimensions"]))
+T("Baromètre : signaux d'USAGE intégrés et affichés en clair",
+  m["usage"]["nb_services"] >= 1
+  and any("mobilisé votre PMV" in x for d in m["dimensions"] for x in d["appuis"]))
+_, ale, _ = req("GET", f"/api/assures/{lea['id']}")
+T("Baromètre absent sans profil (Léa)", ale["barometre"] is None)
+c, r, _ = req("POST", "/api/barometre", {"prompt": "x"})
+T("Baromètre : lecture LLM absente → null (repli client)", c == 200 and r["texte"] is None)
+
 # ── F-72 : catalogue ─────────────────────────────────────────────────────
 _, cat, _ = req("GET", "/api/catalogue")
 T("F-72 catalogue aidance-pro chargé (source explicite)", len(cat["prestations"]) >= 80 and cat["source"] in ("snapshot", "aidance-pro"))
