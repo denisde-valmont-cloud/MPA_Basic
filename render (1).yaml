@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: mpa-demo
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 mpa_api.py
