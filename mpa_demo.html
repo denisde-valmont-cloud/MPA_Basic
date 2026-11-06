@@ -1,0 +1,1679 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MPA — V1 · 3 rôles</title>
+<style>
+  :root{
+    --purple:#7A2D6B; --purpleLt:#F3E8F0; --gold:#E2A93B; --goldDk:#B9851F; --goldLt:#FBEFD6;
+    --teal:#3F7067; --tealMid:#5E9C92; --tealLt:#E4EFEC; --blue:#2F5DA8; --blueLt:#EAF0FA;
+    --ink:#2A2433; --paper:#FBF9F6; --card:#FFFFFF; --line:#EBE5DE; --muted:#8C8492;
+    --good:#2E7D5B; --bad:#C0492F;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px}
+  .wrap{max-width:1040px;margin:0 auto;padding:18px}
+  /* topbar */
+  .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .brand{font-weight:800;font-size:18px;color:var(--purple);letter-spacing:-.3px}
+  .brand small{display:block;font-weight:500;font-size:11px;color:var(--muted)}
+  .apibox{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .apibox input{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:12px;width:210px;font-family:inherit}
+  .tabs{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 18px}
+  .tab{padding:9px 14px;border-radius:11px;border:1px solid var(--line);background:#fff;
+    font-weight:700;font-size:13px;cursor:pointer;color:var(--ink)}
+  .tab.on{color:#fff;border-color:transparent}
+  .tab.on.contrat{background:var(--purple)} .tab.on.indem{background:var(--blue)}
+  .tab.on.aidant{background:var(--teal)} .tab.on.pro{background:var(--goldDk)}
+  /* layout */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:18px;margin-bottom:14px}
+  h2{font-size:15px;margin:0 0 12px;color:var(--ink)}
+  h2 .sub{font-weight:500;color:var(--muted);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:700;padding:9px 10px;background:var(--paper)}
+  td{padding:9px 10px;border-top:1px solid var(--line)}
+  .btn{border:none;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;cursor:pointer;color:#fff;background:var(--purple);font-family:inherit}
+  .btn.blue{background:var(--blue)} .btn.teal{background:var(--teal)} .btn.gold{background:var(--goldDk)}
+  .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+  .btn.bad{background:#fff;color:var(--bad);border:1px solid var(--bad)}
+  .btn:disabled{background:var(--muted);cursor:default;opacity:.6}
+  input,select{font-family:inherit}
+  .in{padding:9px 11px;border:1px solid var(--line);border-radius:10px;font-size:13px;width:100%}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .f{flex:1 1 140px} .f label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px}
+  .chip{display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:7px}
+  .pmv{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+  .stat{flex:1 1 130px;background:var(--paper);border-radius:12px;padding:11px 13px}
+  .stat b{display:block;font-size:20px} .stat span{font-size:11px;color:var(--muted);font-weight:600}
+  .nddbtn{flex:1 1 92px;text-align:left;padding:9px 11px;border-radius:10px;border:1px solid var(--line);
+    background:#fff;cursor:pointer;font-family:inherit}
+  .nddbtn.on{background:var(--purple);color:#fff;border-color:transparent}
+  .nddbtn.no{opacity:.55;cursor:not-allowed;background:#FAF8F6}
+  .nddbtn b{display:block;font-size:13px} .nddbtn small{font-size:10px;color:var(--muted)}
+  .muted{color:var(--muted)} .right{text-align:right}
+  pre{background:#2A2433;color:#E9E2DE;border-radius:12px;padding:14px;overflow:auto;max-height:240px;font-size:11px;line-height:1.5}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:#fff;
+    padding:11px 16px;border-radius:11px;font-weight:600;font-size:13px;box-shadow:0 10px 30px rgba(0,0,0,.2);
+    opacity:0;transition:opacity .2s;pointer-events:none;max-width:480px;z-index:50}
+  .toast.show{opacity:1} .toast.err{background:var(--bad)}
+  .empty{padding:24px;text-align:center;color:var(--muted)}
+  /* — ajouts V1 — */
+  .ptip{position:relative;cursor:help;border-bottom:1px dotted var(--muted)}
+  .ptip .ptip-box{display:none;position:absolute;left:0;bottom:calc(100% + 8px);z-index:40;width:310px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:0 10px 26px rgba(0,0,0,.14);font-weight:400;font-size:12px;line-height:1.5;color:var(--ink);white-space:normal;text-align:left}
+  .ptip:hover .ptip-box{display:block}
+  .eq{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted);font-weight:600;margin-top:8px}
+  .eq b{color:var(--ink)}
+  .nbadge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--bad);color:#fff;font-size:10.5px;font-weight:800;margin-left:6px}
+  .dosbar{position:sticky;top:0;z-index:30;background:var(--purple);color:#fff;border-radius:13px;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;box-shadow:0 6px 18px rgba(122,45,107,.25)}
+  .dosbar .num{font-weight:800;letter-spacing:.5px;font-size:14.5px}
+  .modal-bg{position:fixed;inset:0;background:rgba(42,36,51,.45);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px}
+  .modal{background:#fff;border-radius:16px;padding:20px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">MPA — V1<small>Spécifications fonctionnelles V1.1 · un PMV, trois rôles · paiements manuels du gestionnaire</small></div>
+    <div class="apibox">
+      <input id="apiUrl" value="http://127.0.0.1:8765">
+      <button class="btn ghost" data-act="connect">Connecter</button>
+      <button class="btn ghost" data-act="reset">Réinitialiser</button>
+    </div>
+  </div>
+  <div class="tabs" id="tabs">
+    <button class="tab aidant on" data-act="role" data-role="aidant">Assuré-aidant</button>
+    <button class="tab pro" data-act="role" data-role="pro">Pro de l'aidance</button>
+    <button class="tab indem" data-act="role" data-role="indem">Gestionnaire indemnisation</button>
+  </div>
+  <div id="panel"></div>
+</div>
+<div class="toast" id="toast"></div>
+<div id="modal-root"></div>
+
+<script>
+/* ╔════════════════════════════════════════════════════════════════════════╗
+   ║  MPA V1 — shell 3 rôles (specs fonctionnelles V1.1 du 06/11/2026)       ║
+   ║  SOMMAIRE                                                               ║
+   ║   §1  État global, accès API, rendu                                     ║
+   ║   §2  Helpers (PMV 5 chiffres & équations F-43, fil d'avancement F-50)  ║
+   ║   §3  Profils situationnels (F-41/F-42) — formulaires aidant & PFD      ║
+   ║   §4  Ma situation (F-44/F-45) : bilan IA validé, besoins, parcours     ║
+   ║   §5  Trouver un pro (F-46) : catégories retenues + catalogue 3 facettes║
+   ║   §6  Assuré-aidant : Accueil · Prestations (F-49/F-50) ·               ║
+   ║       Mon PMV & remboursements (F-43/F-51) · Dossier · Contact (F-52)   ║
+   ║   §7  Pro de l'aidance (F-60/F-61) — accès par lien sécurisé (A-1a)     ║
+   ║   §8  Gestionnaire (F-20 à F-28) : dossiers, FILE DES PAIEMENTS,        ║
+   ║       remboursements, alertes, e-mails simulés, exports                 ║
+   ║   §9  Écouteurs d'événements                                            ║
+   ║  Règles clés : engagement = clic d'acceptation (RG-51) ; paiement       ║
+   ║  TOUJOURS manuel par le gestionnaire (RG-52) ; aucune libération        ║
+   ║  automatique (F-70) ; double verrou RIB + profil PFD (RG-42).           ║
+   ╚════════════════════════════════════════════════════════════════════════╝ */
+
+/* ═══════ §1 · État global & accès API ═══════ */
+const SAME_ORIGIN = location.protocol.indexOf("http") === 0 ? location.origin : "";
+let API = SAME_ORIGIN || "http://127.0.0.1:8765";
+let ROLE = "aidant";
+let STATE = null;
+let AIDANT_ID = null;
+let PRO_ID = null;      // démo : identité du pro simulée (accès réel : lien e-mail)
+
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function eur(x){ const n=Number(x); return isNaN(n)?"—":n.toLocaleString("fr-FR",{style:"currency",currency:"EUR"}); }
+function dateFR(iso){ if(!iso)return "—"; const p=String(iso).split(" ")[0].split("-"); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso; }
+const $=(s,r=document)=>r.querySelector(s);
+
+function toast(msg, err=false){
+  const t=$("#toast"); t.textContent=msg; t.className="toast show"+(err?" err":"");
+  clearTimeout(t._h); t._h=setTimeout(()=>t.className="toast",3400);
+}
+
+async function api(method, path, body){
+  const r=await fetch(API+path,{method,headers:{"Content-Type":"application/json"},
+    body:body!==undefined?JSON.stringify(body):undefined});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.error||("Erreur "+r.status));
+  return data;
+}
+
+async function refresh(){
+  try{
+    STATE=await api("GET","/api/state");
+  }catch(e){ STATE=null; toast("API injoignable : "+e.message,true); render(); return; }
+  const assures=STATE.assures||[];
+  if(assures.length && (!AIDANT_ID || !assures.some(a=>a.id===AIDANT_ID)))
+    AIDANT_ID=assures[0].id;
+  render();
+}
+
+function updateTabs(){ document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.dataset.role===ROLE)); }
+
+function render(){
+  updateTabs();
+  const p=$("#panel");
+  if(!STATE){ p.innerHTML=`<div class="card empty">Connectez-vous à l'API (bouton « Connecter »).</div>`; return; }
+  p.innerHTML = ROLE==="pro" ? viewPro() : ROLE==="indem" ? viewGest() : viewAidant();
+  $("#modal-root").innerHTML = MODAL ? (typeof MODAL==="function"?MODAL():MODAL) : "";
+}
+let MODAL="";   // contenu HTML du modal courant ("" = fermé)
+
+/* ═══════ §2 · Helpers V1 ═══════ */
+// — F-43 : les 5 chiffres du PMV et les deux équations —
+function pmvStrip5(env, compact){
+  if(!env) return "";
+  const s=(l,v,tone)=>`<div class="stat" style="flex:1 1 ${compact?'96px':'118px'}"><b style="font-size:${compact?'15px':'19px'};color:${tone||'var(--ink)'}">${eur(v)}</b><span>${esc(l)}</span></div>`;
+  return `<div class="pmv">
+    ${s("Crédit cumulé",env.credit_cumule,"var(--purple)")}
+    ${s("Payé",env.paye,"var(--muted)")}
+    ${s("Solde",env.solde)}
+    ${s("Engagé",env.engage,"var(--goldDk)")}
+    ${s("Disponible",env.disponible,"var(--good)")}
+  </div>
+  <div class="eq">Crédit cumulé <b>${eur(env.credit_cumule)}</b> − payé <b>${eur(env.paye)}</b> = solde <b>${eur(env.solde)}</b><span style="opacity:.5">·</span>solde − engagé <b>${eur(env.engage)}</b> = <b style="color:var(--good)">disponible ${eur(env.disponible)}</b></div>`;
+}
+
+// — F-50 : fil d'avancement d'un devis (demandé → devisé → engagé → réalisé → payé) —
+const DV_FLOW=["demande","devisé","engagé","réalisée","payé"];
+const DV_IDX={demande:0,"devisé":1,"engagé":2,"réalisée":3,"payé":4};
+const DV_FLOW_LBL=["Demandé","Devisé","Engagé","Réalisé","Payé"];
+function dvStepper(d){
+  if(["refusé","annulé","contestée"].includes(d.statut)){
+    const t={refusé:["Refusé","var(--muted)",d.motif_refus],
+             annulé:["Annulé par le gestionnaire","var(--bad)",d.motif_annulation],
+             contestée:["Contesté — à l'étude par le gestionnaire","var(--bad)",d.motif_contestation]}[d.statut];
+    return `<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:10px;background:var(--paper);margin-bottom:10px"><span class="chip" style="color:#fff;background:${t[1]}">${t[0]}</span>${t[2]?`<span class="muted" style="font-size:12px">${esc(t[2])}</span>`:""}</div>`;
+  }
+  const idx=DV_IDX[d.statut]??0;
+  return `<div style="display:flex;align-items:center;margin:4px 0 10px">`+DV_FLOW.map((st,i)=>{
+    const done=i<idx||(i===idx&&st==="payé"), cur=i===idx&&st!=="payé";
+    return `<div style="display:flex;align-items:center;flex:${i<4?'1':'0 0 auto'}">
+      <div title="${DV_FLOW_LBL[i]}" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;flex-shrink:0;background:${done?'var(--teal)':cur?'var(--tealMid)':'var(--card)'};border:1px solid ${done||cur?'transparent':'var(--line)'};color:${done||cur?'#fff':'var(--muted)'};font-size:10.5px;font-weight:800">${done?'✓':i+1}</div>
+      ${i<4?`<div style="flex:1;height:2px;margin:0 4px;background:${i<idx?'var(--teal)':'var(--line)'}"></div>`:''}</div>`;
+  }).join("")+`</div>
+  <div class="muted" style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;margin:-6px 1px 10px"><span>Demandé</span><span>Devisé</span><span>Engagé</span><span>Réalisé</span><span>Payé</span></div>`;
+}
+
+const NDD_FULL={1:["Dépendance totale","Troubles physiques ou mentaux avancés",6,true],
+  2:["Dépendance sévère","Majeure partie au lit/fauteuil ou aptitudes mentales fortement altérées",6,true],
+  3:["Dépendance importante","Pour les actes du quotidien",4,true],
+  4:["Dépendance moyenne","Pour les actes du quotidien",4,true],
+  5:["Dépendance faible","Pour les actes du quotidien",null,false],
+  6:["Aucune dépendance","Le handicap/pathologie ne provoque pas de dépendance",null,false]};
+
+const A_TACHES=[["administratif","Démarches administratives"],["rdv_medicaux","RDV médicaux"],["transport","Transports"],["actes_quotidien","Actes de la vie quotidienne"],["soutien_moral","Soutien moral"],["coordination","Coordination des intervenants"]];
+const A_CHARGE=[["fatigue","Fatigue / épuisement"],["sommeil","Nuits difficiles"],["isolement","Isolement"],["repit","Besoin de répit"],["pro","Impact sur ma vie pro"]];
+const A_ORIGINES=["Grand âge","Handicap moteur","Handicap sensoriel","Handicap psychique","Handicap cognitif/intellectuel","Maladie évolutive","Post-accident"];
+const A_LIENS=["Enfant","Frère","Sœur","Conjoint","Père","Mère"];
+const A_GIR=["GIR 1 (le plus dépendant)","GIR 2","GIR 3","GIR 4","GIR 5","GIR 6 (autonome)"];
+const A_NIVEAUX=["Légère","Modérée","Importante","Totale"];
+const A_HORIZONS=[3,6,9,12];
+const A_TAXO=[["assistance_administrative","Assistance administrative"],["logement_adaptation","Adaptation du logement / ergothérapie"],["logement_social","Logement social"],["aide_domicile","Aide à domicile (actes quotidiens)"],["soutien_psychologique","Soutien psychologique"],["repit","Répit de l'aidant"],["mobilite_transport","Mobilité / transport"],["formation_aidant","Formation de l'aidant"],["accompagnement_independance","Accompagnement vers l'indépendance"]];
+const A_TAXO_LABEL=id=>{const t=A_TAXO.find(x=>x[0]===id);return t?t[1]:id;};
+const A_TAXO_IDS=A_TAXO.map(t=>t[0]);
+const A_TAXO_FAMILLE={assistance_administrative:"Aide administrative",logement_adaptation:"Aide matérielle",logement_social:"Aide administrative",aide_domicile:"Aide humaine",soutien_psychologique:"Aide psycho-affective",repit:"Aide au parcours de vie",mobilite_transport:"Aide matérielle",formation_aidant:"Aide au parcours de vie",accompagnement_independance:"Aide au parcours de vie"};
+const A_MOD={distanciel:"À distance",presentiel_aidant:"Chez l'aidant",presentiel_pro:"Chez le pro"};
+const A_UNITE={"Par heure":"/ heure","Par jour":"/ jour","Prestation complète":"forfait"};
+const A_LBL={0:["Premium","var(--gold)","var(--goldLt)"],1:["Labellisé","var(--purple)","var(--purpleLt)"],2:["Autre","var(--muted)","#F0EDEA"]};
+const A_uniq=a=>[...new Set(a)].sort((x,y)=>x.localeCompare(y,"fr"));
+/* Catalogue dérivé de l'état partagé : le moteur Python est la source de vérité. */
+function A_proNom(pid){ const p=((STATE&&STATE.pros)||[]).find(x=>x.id===pid); return p?p.nom:pid; }
+function A_rows(){ return ((STATE&&STATE.prestations)||[]).map(p=>({
+  id:p.id, pid:p.pid, pro:A_proNom(p.pro_id), pro_id:p.pro_id, rank:Number(p.rank),
+  metiers:p.metiers||[], familles:p.familles||[], mod:p.mod||[], nat:!!p.nat,
+  deps:p.deps||[], prix:(p.prix==null?null:Number(p.prix)), unite:p.unite, nom:p.nom, desc:p.desc||"" })); }
+function A_deptsList(){ return (STATE&&STATE.depts)||[]; }
+function A_famillesList(){ return A_uniq(A_rows().flatMap(r=>r.familles)); }
+function A_metiersList(){ return A_uniq(A_rows().flatMap(r=>r.metiers)); }
+function aChips(items,active,act,color){
+  return `<div style="display:flex;gap:7px;flex-wrap:wrap">`+items.map(([id,label])=>{
+    const on=active.includes(id);
+    return `<button class="chip" data-act="${act}" data-v="${esc(id)}" style="cursor:pointer;padding:7px 12px;font-weight:600;font-size:12.5px;border:1px solid ${on?color:'var(--line)'};background:${on?color+'1F':'#fff'};color:${on?'var(--ink)':'var(--muted)'}">${esc(label)}</button>`;
+  }).join("")+`</div>`;
+}
+
+/* ═══════ §3 · Profils situationnels (blocs réutilisés de la pré-prod « mpa-aidant ») ═══════ */
+/* ── Profil aidant : analyse situationnelle (réf. grille multidim. FPFR · EMS-APA CNSA · grille répit HAS) ── */
+const PF_MARITAL=["Célibataire","En couple","Marié(e) / Pacsé(e)","Divorcé(e) / Séparé(e)","Veuf(ve)"];
+const PF_FOYER=["Seul(e)","En couple sans enfant","Avec enfant(s) à charge","Famille monoparentale","Autre"];
+const PF_COHAB=["Oui, je vis avec mon proche","Non"];
+const PF_DISTANCE=["Même logement","Moins de 15 min","15 à 30 min","30 min à 1 h","Plus d'1 h"];
+const PF_ANCIENNETE=["Moins de 6 mois","6 mois à 2 ans","2 à 5 ans","Plus de 5 ans"];
+const PF_HEURES=["Moins de 4 h/sem","4 à 10 h/sem","10 à 20 h/sem","20 à 40 h/sem","Plus de 40 h/sem"];
+const PF_NUIT=["Non","Oui, ponctuellement","Oui, régulièrement"];
+const PF_TACHES=["Actes essentiels (toilette, repas)","Tâches domestiques","Démarches administratives","Soins / surveillance","Accompagnement / transport","Soutien moral"];
+const PF_STATUT_PRO=["Salarié(e)","Indépendant(e)","Fonctionnaire","Demandeur d'emploi","Retraité(e)","Au foyer","Étudiant(e)"];
+const PF_CONTRAT=["CDI","CDD","Intérim","Sans objet"];
+const PF_TEMPS=["Temps plein","Temps partiel"];
+const PF_POSTE=["Horaires de journée","Travail posté / décalé","Travail de nuit","Horaires variables"];
+const PF_FLEX=["Aucune flexibilité","Faible","Modérée","Forte"];
+const PF_AMENAGE=["Télétravail","Horaires individualisés","Temps partiel","Congé proche aidant","Don de jours / CET"];
+const PF_COAIDANTS=["Je suis le seul aidant","Oui, un autre aidant","Oui, plusieurs aidants"];
+const PF_ROLE=["Aidant principal","Aidant secondaire"];
+const PF_RELAIS=["Relais possible facilement","Relais possible parfois","Aucun relais"];
+const PF_AIDES_H=["Aide à domicile","Infirmier / SSIAD","Accueil de jour","Plateforme de répit"];
+const PF_AIDES_F=["AJPA (congé proche aidant)","AJPP (présence parentale)","Dédommagement aidant (via PCH)","Salariat via CESU","AVPF (retraite du proche aidant)","Droit au répit","Aide de l'employeur (CESU préfinancé, CSE, dons de jours)","Aide d'une action sociale (CCAS, département)","Aide d'une caisse de retraite","Crédit d'impôt (services à la personne)","Aucune"];
+const PF_SANTE=["Bonne","Moyenne","Altérée"];
+const PF_FATIGUE=["Faible","Modérée","Élevée"];
+const PF_DISPO=["Matin","Après-midi","Soir","Week-end"];
+const PF_BESOINS=["Répit","Soutien psychologique","Aide à domicile","Information / formation","Aide administrative","Mobilité / transport"];
+function pfVal(id){ const el=$("#"+id); return el?String(el.value||"").trim():""; }
+function pfGrp(grp){ try{ return Array.from(document.querySelectorAll('[data-grp="'+grp+'"]:checked')).map(e=>e.value); }catch(_){ return []; } }
+function pfSel(id,label,opts,val,flex){ return `<div class="f" style="flex:${flex||'1 1 180px'}"><label>${esc(label)}</label><select class="in" id="${id}"><option value="">—</option>${opts.map(o=>`<option ${o===val?'selected':''}>${esc(o)}</option>`).join("")}</select></div>`; }
+function pfInp(id,label,val,ph,flex){ return `<div class="f" style="flex:${flex||'1 1 180px'}"><label>${esc(label)}</label><input class="in" id="${id}" value="${esc(val||"")}" placeholder="${esc(ph||"")}"></div>`; }
+function pfChk(grp,opts,vals){ return `<div style="display:flex;flex-wrap:wrap;gap:0 4px">${opts.map(o=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;margin:0 12px 7px 0;cursor:pointer"><input type="checkbox" data-grp="${grp}" value="${esc(o)}" ${(vals||[]).includes(o)?'checked':''}>${esc(o)}</label>`).join("")}</div>`; }
+function pfHead(t){ return `<div style="font-size:11.5px;font-weight:800;color:var(--purple);margin:16px 0 8px;letter-spacing:.4px">${esc(t.toUpperCase())}</div>`; }
+
+function aidProfilForm(a){
+  const p=a.profil||{};
+  return `<div>
+    ${pfHead("Coordonnées & RIB")}
+    <div class="row">
+      ${pfInp("pf-adresse","Adresse",p.adresse,"N° et rue","2 1 260px")}
+      ${pfInp("pf-cp","Code postal",p.cp,"69000","0 1 110px")}
+      ${pfInp("pf-ville","Ville",p.ville,"Lyon","1 1 160px")}
+    </div>
+    <div class="row" style="align-items:flex-end">
+      <div class="f" style="flex:2 1 260px"><label>IBAN (RIB) — requis pour accéder au PMV</label><input class="in" id="ai-iban" value="${esc(a.rib||"")}" placeholder="FR76 ………"></div>
+      ${pfInp("ai-tel","Téléphone",a.telephone,"06 …","1 1 150px")}
+    </div>
+    ${pfHead("Situation familiale")}
+    <div class="row">
+      ${pfSel("pf-marital","Statut familial",PF_MARITAL,p.marital)}
+      ${pfSel("pf-foyer","Composition du foyer",PF_FOYER,p.foyer)}
+      ${pfInp("pf-enfants","Enfants à charge",p.enfants,"0","0 1 130px")}
+    </div>
+    ${pfHead("Mon proche & l'aide apportée")}
+    <div class="row">
+      ${pfSel("pf-cohabite","Vivez-vous avec votre proche ?",PF_COHAB,p.cohabite)}
+      ${pfSel("pf-distance","Distance domicile-proche",PF_DISTANCE,p.distance)}
+      ${pfSel("pf-anciennete","Depuis combien de temps êtes-vous aidant ?",PF_ANCIENNETE,p.anciennete)}
+    </div>
+    <div class="row">
+      ${pfSel("pf-heures","Temps d'aide hebdomadaire",PF_HEURES,p.heures)}
+      ${pfSel("pf-nuit","Aide la nuit ?",PF_NUIT,p.nuit)}
+    </div>
+    <div class="f"><label>Nature de l'aide</label>${pfChk("pf-taches",PF_TACHES,p.taches)}</div>
+    ${pfHead("Situation professionnelle")}
+    <div class="row">
+      ${pfSel("pf-statutpro","Statut",PF_STATUT_PRO,p.statutpro)}
+      ${pfSel("pf-contrat","Type de contrat",PF_CONTRAT,p.contrat)}
+      ${pfSel("pf-temps","Temps de travail",PF_TEMPS,p.temps)}
+    </div>
+    <div class="row">
+      ${pfSel("pf-poste","Organisation des horaires",PF_POSTE,p.poste)}
+      ${pfSel("pf-flex","Flexibilité des horaires",PF_FLEX,p.flex)}
+    </div>
+    <div class="f"><label>Aménagements en place</label>${pfChk("pf-amenage",PF_AMENAGE,p.amenage)}</div>
+    ${pfHead("Entourage & co-aidants")}
+    <div class="row">
+      ${pfSel("pf-coaidants","Autres aidants ?",PF_COAIDANTS,p.coaidants)}
+      ${pfSel("pf-role","Votre rôle",PF_ROLE,p.role)}
+      ${pfSel("pf-relais","Possibilité de relais",PF_RELAIS,p.relais)}
+    </div>
+    ${pfHead("Aides déjà en place")}
+    <div class="f"><label>Aides humaines</label>${pfChk("pf-aidesh",PF_AIDES_H,p.aidesh)}</div>
+    <div class="f"><label>Aides financières</label>${pfChk("pf-aidesf",PF_AIDES_F,p.aidesf)}</div>
+    ${pfInp("pf-aidesf-autre","Autre aide financière (précisez)",p.aidesf_autre,"ex. fonds de solidarité, aide d'une mutuelle, CESU employeur…","1 1 100%")}
+    ${pfHead("Retentissement & besoins")}
+    <div class="row">
+      ${pfSel("pf-sante","Santé perçue",PF_SANTE,p.sante)}
+      ${pfSel("pf-fatigue","Fatigue ressentie",PF_FATIGUE,p.fatigue)}
+    </div>
+    <div class="f"><label>Disponibilités pour des prestations</label>${pfChk("pf-dispo",PF_DISPO,p.dispo)}</div>
+    <div class="f"><label>Besoins prioritaires</label>${pfChk("pf-besoins",PF_BESOINS,p.besoins)}</div>
+    <div class="muted" style="font-size:11px;margin:8px 0 12px;line-height:1.45">Ces informations alimentent l'analyse situationnelle et l'orientation personnalisée. Obligatoires : RIB (accès au PMV), coordonnées postales et situation familiale ; le reste affine la pertinence.</div>
+    <div class="row">
+      <button class="btn gold" data-act="a-profil-completer" data-id="${esc(a.id)}">${a.profil_complet?"Enregistrer les modifications":"Valider mon profil"}</button>
+      ${a.profil_complet?`<button class="btn ghost" data-act="a-profil-edit">Annuler</button>`:""}
+    </div>
+  </div>`;
+}
+
+function aidProfil(a){
+  const p=a.profil||{};
+  if(a.profil_complet){
+    const rib=a.rib||"", masked = rib.length>10 ? rib.slice(0,6)+"…"+rib.slice(-4) : rib;
+    const tags=[p.marital,p.statutpro,p.poste,(p.heures?("Aide "+p.heures):""),(p.coaidants&&p.coaidants!=="Je suis le seul aidant"?p.coaidants:"")]
+      .filter(Boolean).slice(0,5).map(x=>`<span class="chip" style="color:var(--purple);background:var(--purpleLt)">${esc(x)}</span>`).join(" ");
+    return `<div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px;color:var(--good)">✓</span>
+          <div><div style="font-weight:800;font-size:14px">Profil complété</div>
+          <div class="muted" style="font-size:12px">RIB ${esc(masked)}${a.telephone?` · ${esc(a.telephone)}`:""}${(p.cp||p.ville)?` · ${esc(((p.cp||"")+" "+(p.ville||"")).trim())}`:""}</div></div></div>
+        <button class="btn ghost" data-act="a-profil-edit" style="font-size:12px">${AID.profilEdit?"Fermer":"Modifier / compléter"}</button></div>
+      ${tags?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${tags}</div>`:""}
+      ${a.pmv_pret
+        ?`<div style="margin-top:10px;padding:10px 13px;border-radius:11px;background:var(--tealLt);color:var(--good);font-size:12px;line-height:1.4">✓ Votre PMV est utilisable.</div>`
+        :`<div style="margin-top:10px;padding:10px 13px;border-radius:11px;background:var(--goldLt);color:var(--goldDk);font-size:12px;line-height:1.4">⏳ ${esc(a.pmv_blocage||"")} Rendez-vous dans « Mes proches » ci-dessous pour activer votre PMV.</div>`}
+      ${AID.profilEdit?`<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">${aidProfilForm(a)}</div>`:""}</div>`;
+  }
+  return `<div class="card" style="margin-bottom:14px;border:1px solid var(--gold);background:var(--goldLt)">
+    <div style="display:flex;align-items:flex-start;gap:11px;margin-bottom:12px">
+      <span style="font-size:20px">🔒</span>
+      <div><div style="font-weight:800;font-size:14.5px;color:var(--goldDk)">Complétez votre profil pour accéder à votre PMV</div>
+      <div class="muted" style="font-size:12px;line-height:1.45">Votre PMV est crédité (${eur(a.pmv?a.pmv.disponible:0)}). Renseignez votre profil — au minimum votre RIB (sur lequel vos remboursements seront versés), vos coordonnées et votre situation. Plus il est complet, plus l'orientation proposée sera pertinente.</div></div></div>
+    ${aidProfilForm(a)}</div>`;
+}
+
+/* ── Analyse situationnelle du PFD (réf. grille AGGIR · référentiel d'évaluation multidim. des demandeurs d'APA, arrêté 5/12/2016) ── */
+const PD_LIEU=["Domicile, seul(e)","Domicile, avec l'aidant","Domicile, avec un tiers","Hébergement partiel en établissement"];
+const PD_LOGEMENT=["Maison","Appartement","Logement adapté","Résidence services / autonomie"];
+const PD_ADAPTE=["Oui","Non","En projet"];
+const PD_ENVIRON=["Urbain","Péri-urbain","Rural","Isolé"];
+const PD_NATURE=["Physique","Cognitive","Mixte (physique & cognitive)","Psychique","Sensorielle"];
+const PD_PATHO=["Maladie neurodégénérative (Alzheimer…)","Pathologie motrice / AVC","Polypathologie liée à l'âge","Handicap de naissance","Maladie chronique invalidante","Pathologie psychique","Autre"];
+const PD_MOBILITE=["Autonome","Aide technique (canne, déambulateur)","Fauteuil roulant","Alité(e) la majeure partie du temps"];
+const PD_COGNITIF=["Aucun","Troubles légers","Troubles importants"];
+const PD_AVQ=["Toilette / habillage","Alimentation","Déplacements","Élimination","Cohérence / orientation","Tâches domestiques","Gestion administrative / budget"];
+const PD_ISOLEMENT=["Faible","Modéré","Fort"];
+const PD_AIDES_H=["Aide à domicile","Infirmier / SSIAD","Accueil de jour","Kinésithérapeute","Portage de repas"];
+const PD_AIDES_F=["APA","PCH","AAH","AEEH","ASPA (minimum vieillesse)","MVA (majoration pour la vie autonome)","Aide sociale départementale / CCAS","Aide d'une caisse de retraite","Crédit d'impôt (services à la personne)","En cours de demande","Aucune"];
+const PD_AIDES_T=["Téléassistance","Lit médicalisé","Aménagement salle de bain","Monte-escalier"];
+const PD_RISQUES=["Chutes","Dénutrition","Isolement social","Sécurité du domicile","Épuisement de l'aidant","Errance / désorientation"];
+const PD_BESOINS=["Aide à domicile","Répit de l'aidant","Soins / surveillance","Adaptation du logement","Accompagnement / transport","Soutien administratif","Stimulation / lien social"];
+
+function pdForm(pfd){
+  const p=pfd.profil||{};
+  return `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+    ${pfHead("Le proche & son cadre de vie")}
+    <div class="row">
+      ${pfInp("pd-naissance","Année de naissance / âge",p.naissance,"ex. 1948","0 1 160px")}
+      ${pfSel("pd-lieu","Lieu de vie",PD_LIEU,p.lieu,"2 1 250px")}
+    </div>
+    <div class="row">
+      ${pfSel("pd-logement","Type de logement",PD_LOGEMENT,p.logement)}
+      ${pfSel("pd-adapte","Logement adapté ?",PD_ADAPTE,p.adapte)}
+      ${pfSel("pd-environ","Environnement",PD_ENVIRON,p.environ)}
+    </div>
+    ${pfHead("Santé & autonomie")}
+    <div class="row">
+      ${pfSel("pd-nature","Nature de la dépendance",PD_NATURE,p.nature)}
+      ${pfSel("pd-patho","Origine principale",PD_PATHO,p.patho)}
+    </div>
+    <div class="row">
+      ${pfSel("pd-mobilite","Mobilité",PD_MOBILITE,p.mobilite)}
+      ${pfSel("pd-cognitif","Troubles cognitifs",PD_COGNITIF,p.cognitif)}
+    </div>
+    ${pfHead("Activités de la vie quotidienne (réf. AGGIR)")}
+    <div class="f"><label>Domaines nécessitant de l'aide</label>${pfChk("pd-avq",PD_AVQ,p.avq)}</div>
+    ${pfHead("Entourage & isolement")}
+    <div class="row">
+      ${pfSel("pd-isolement","Isolement social",PD_ISOLEMENT,p.isolement)}
+      ${pfInp("pd-entourage","Autres proches présents ?",p.entourage,"ex. un frère à proximité","2 1 250px")}
+    </div>
+    ${pfHead("Aides déjà en place pour le proche")}
+    <div class="f"><label>Aides humaines</label>${pfChk("pd-aidesh",PD_AIDES_H,p.aidesh)}</div>
+    <div class="f"><label>Aides financières</label>${pfChk("pd-aidesf",PD_AIDES_F,p.aidesf)}</div>
+    ${pfInp("pd-aidesf-autre","Autre aide financière (précisez)",p.aidesf_autre,"ex. aide sociale, fonds départemental…","1 1 100%")}
+    <div class="f"><label>Aides techniques</label>${pfChk("pd-aidest",PD_AIDES_T,p.aidest)}</div>
+    ${pfHead("Risques & besoins prioritaires")}
+    <div class="f"><label>Points de vigilance</label>${pfChk("pd-risques",PD_RISQUES,p.risques)}</div>
+    <div class="f"><label>Besoins prioritaires du proche</label>${pfChk("pd-besoins",PD_BESOINS,p.besoins)}</div>
+    <div class="muted" style="font-size:11px;margin:8px 0 12px;line-height:1.45">Analyse situationnelle du proche (réf. grille AGGIR & référentiel d'évaluation multidimensionnelle des demandeurs d'APA). Elle affine l'orientation des prestations.</div>
+    <div class="row">
+      <button class="btn teal" data-act="a-pfd-save" data-id="${esc(pfd.id)}">Enregistrer le profil du proche</button>
+      <button class="btn ghost" data-act="a-pfd-edit" data-id="${esc(pfd.id)}">Fermer</button>
+    </div>
+  </div>`;
+}
+function dvMsg(label,txt,color){ if(!txt) return ""; return `<div style="margin-top:8px;padding:9px 12px;border-left:3px solid ${color};border-radius:0 9px 9px 0;background:var(--paper);font-size:12.5px;line-height:1.45"><span class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px">${label}</span><div style="margin-top:2px">${esc(txt)}</div></div>`; }
+
+function aidAidesList(a){
+  const pfds=a.aides||[];
+  const cards=pfds.map(pfd=>{
+    const ref=pfd.principal, done=pfd.profil&&Object.keys(pfd.profil).length>0, open=AID.pfdEdit===pfd.id;
+    return `<div style="border:1px solid var(--line);border-radius:13px;padding:13px 15px;background:var(--paper)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-weight:800;font-size:14px">${esc(pfd.prenom)}</span>
+        <span class="muted" style="font-size:12px">${esc(pfd.lien)}${pfd.ndd?` · NDD ${pfd.ndd}`:""}</span>
+        <span class="chip" style="margin-left:auto;color:${ref?'var(--purple)':'var(--muted)'};background:${ref?'var(--purpleLt)':'var(--line)'}">${ref?'Proche de référence · indemnité':'Proche complémentaire'}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap">
+        <span class="chip" style="color:${done?'var(--good)':'var(--goldDk)'};background:${done?'#E5F2EB':'var(--goldLt)'}">${done?'✓ Profil renseigné':'Profil à compléter'}</span>
+        <button class="btn ${open?'ghost':'teal'}" data-act="a-pfd-edit" data-id="${esc(pfd.id)}" style="font-size:12px;padding:7px 12px">${open?'Fermer':(done?'Modifier le profil':'Compléter le profil')}</button>
+      </div>
+      ${open?pdForm(pfd):""}</div>`;
+  }).join("");
+  const addForm = AID.pfdAddOpen
+    ? `<div style="margin-top:11px;border:1px dashed var(--purple);border-radius:13px;padding:13px 15px;background:#fff">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Ajouter un Proche Familial Dépendant</div>
+        <div class="row" style="align-items:flex-end">
+          ${pfInp("pfd-new-prenom","Prénom","","ex. Paul","1 1 160px")}
+          <div class="f" style="flex:1 1 150px"><label>Lien de parenté</label><select class="in" id="pfd-new-lien">${A_LIENS.map(o=>`<option ${o==="Père"?'selected':''}>${esc(o)}</option>`).join("")}</select></div>
+          <button class="btn gold" data-act="a-pfd-add" style="flex:0 0 auto">Ajouter</button>
+          <button class="btn ghost" data-act="a-pfd-add-toggle" style="flex:0 0 auto">Annuler</button>
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:6px">Ce proche ne modifie pas le montant de votre indemnité ; votre PMV reste mobilisable pour lui comme pour vos autres proches.</div>
+      </div>`
+    : `<button class="btn ghost" data-act="a-pfd-add-toggle" style="margin-top:11px;border-style:dashed;color:var(--purple)">+ Ajouter un Proche Familial Dépendant</button>`;
+  const empty = !pfds.length
+    ? `<div class="muted" style="font-size:12.5px;line-height:1.45;margin-bottom:8px">Votre proche de référence sera renseigné par votre gestionnaire à partir de la grille d'évaluation médicale. Vous pourrez ensuite compléter son profil.</div>` : "";
+  return `<div class="card" style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-weight:800;font-size:14px">Mon / mes Proche(s) Familial(aux) Dépendant(s) <span class="muted" style="font-weight:500;font-size:11.5px">· PFD</span></div>
+      <span class="chip" style="color:${a.pmv_pret?'var(--good)':'var(--goldDk)'};background:${a.pmv_pret?'#E5F2EB':'var(--goldLt)'}">${a.pmv_pret?'✓ PMV actif':'⏳ PMV à activer'}</span></div>
+    ${empty}
+    <div style="display:grid;gap:10px">${cards}</div>
+    <div class="muted" style="font-size:11px;margin-top:10px;line-height:1.45">C'est <b>vous</b>, l'aidant, qui êtes indemnisé. Le montant a été calculé à partir de votre proche de référence (le plus dépendant) ; votre PMV est mobilisable pour <b>l'ensemble</b> des proches que vous aidez.</div>
+    ${addForm}</div>`;
+}
+
+/* ═══════ §4 · Ma situation — bilan (F-44) & besoins (F-45) ═══════ */
+function _pj(arr){ return (arr||[]).filter(Boolean).join(", "); }
+function profilAidantLines(ap){
+  ap=ap||{}; const L=[];
+  let fam=_pj([ap.marital,ap.foyer]); if(ap.enfants&&ap.enfants!=="0") fam+=(fam?", ":"")+ap.enfants+" enfant(s) à charge";
+  if(fam) L.push(["Situation familiale",fam]);
+  const pro=_pj([ap.statutpro,ap.contrat,ap.temps]); if(pro) L.push(["Situation professionnelle",pro]);
+  const org=_pj([ap.poste, ap.flex&&("flexibilité "+ap.flex.toLowerCase())]); if(org) L.push(["Organisation du travail",org]);
+  if((ap.amenage||[]).length) L.push(["Aménagements",_pj(ap.amenage)]);
+  const lien=_pj([ap.cohabite, ap.distance&&("à "+ap.distance.toLowerCase()), ap.anciennete&&("aidant depuis "+ap.anciennete.toLowerCase())]); if(lien) L.push(["Lien avec le proche",lien]);
+  const charge=_pj([ap.heures, (ap.nuit&&ap.nuit!=="Non")&&("aide de nuit : "+ap.nuit.toLowerCase())]); if(charge) L.push(["Charge d'aide",charge]);
+  if((ap.taches||[]).length) L.push(["Tâches assumées",_pj(ap.taches)]);
+  const ent=_pj([ap.coaidants,ap.role,ap.relais]); if(ent) L.push(["Entourage / relais",ent]);
+  const aides=_pj([...(ap.aidesh||[]),...(ap.aidesf||[]),ap.aidesf_autre]); if(aides) L.push(["Aides déjà en place",aides]);
+  const ret=_pj([ap.sante&&("santé "+ap.sante.toLowerCase()), ap.fatigue&&("fatigue "+ap.fatigue.toLowerCase())]); if(ret) L.push(["Retentissement",ret]);
+  if((ap.dispo||[]).length) L.push(["Disponibilités",_pj(ap.dispo)]);
+  if((ap.besoins||[]).length) L.push(["Besoins exprimés",_pj(ap.besoins)]);
+  return L;
+}
+function profilPfdLines(pfds){
+  return (pfds||[]).map(pfd=>{
+    const p=pfd.profil||{}, L=[];
+    if(p.lieu) L.push(p.lieu);
+    const dep=_pj([p.nature,p.patho]); if(dep) L.push(dep);
+    if(p.mobilite) L.push("mobilité : "+p.mobilite.toLowerCase());
+    if(p.cognitif&&p.cognitif!=="Aucun") L.push("troubles cognitifs : "+p.cognitif.toLowerCase());
+    if((p.avq||[]).length) L.push("aide pour : "+_pj(p.avq));
+    if(p.isolement) L.push("isolement "+p.isolement.toLowerCase());
+    const ai=_pj([...(p.aidesh||[]),...(p.aidesf||[]),...(p.aidest||[]),p.aidesf_autre]); if(ai) L.push("aides : "+ai);
+    if((p.risques||[]).length) L.push("risques : "+_pj(p.risques));
+    if((p.besoins||[]).length) L.push("besoins : "+_pj(p.besoins));
+    return { head:`${pfd.prenom||"PFD"} — ${pfd.lien}${pfd.ndd?`, NDD ${pfd.ndd}`:""}${pfd.principal?" · proche de référence":""}`, lines:L };
+  });
+}
+function profilAidantTxt(ap){ const L=profilAidantLines(ap); return L.length?L.map(x=>`- ${x[0]} : ${x[1]}`).join("\n"):"(profil aidant non renseigné)"; }
+function profilPfdTxt(pfds){ const P=profilPfdLines(pfds); return P.length?P.map(p=>`- ${p.head} : ${p.lines.join(" ; ")||"profil non renseigné"}`).join("\n"):"(aucun PFD renseigné)"; }
+
+function aidFiche(){
+  const a=AID;
+  const A0=(STATE.assures||[]).find(x=>x.id===AIDANT_ID)||{};
+  const aLines=profilAidantLines(A0.profil), pBlocks=profilPfdLines(A0.aides||[]);
+  const hasCtx = aLines.length>0 || pBlocks.some(b=>b.lines.length>0);
+  const canEval=a.consent && (hasCtx || a.recit.trim().length>4);
+  const socle=`<div class="card">
+    <h2 style="color:var(--purple)">Moi, aidant <span class="sub">— l'essentiel : ce que vous assumez, et ce qui pèse</span></h2>
+    <div style="font-size:12.5px;font-weight:700;margin-bottom:8px">Ce que je fais pour mon proche</div>
+    ${aChips(A_TACHES,a.taches,"a-tache","var(--teal)")}
+    <div style="font-size:12.5px;font-weight:700;margin:14px 0 8px">Ce qui est lourd en ce moment <span class="muted" style="font-weight:500">(facultatif)</span></div>
+    ${aChips(A_CHARGE,a.charge,"a-charge","var(--gold)")}
+  </div>`;
+  const synthese=`<div class="card">
+    <h2 style="color:var(--purple)">Ce que nous savons déjà <span class="sub">— l'analyse lit votre profil et celui de votre proche, pas besoin de tout ressaisir</span></h2>
+    <div style="font-size:12.5px;font-weight:700;margin-bottom:7px">Votre situation d'aidant</div>
+    ${aLines.length?`<div style="display:grid;gap:5px">${aLines.map(x=>`<div style="font-size:12.5px"><span class="muted">${esc(x[0])} :</span> <b style="font-weight:600">${esc(x[1])}</b></div>`).join("")}</div>`
+      :`<div class="muted" style="font-size:12px">Profil non renseigné — complétez votre profil dans l'écran « Dossier » pour un bilan plus fin.</div>`}
+    <div style="font-size:12.5px;font-weight:700;margin:14px 0 7px">Votre / vos proche(s) (PFD)</div>
+    ${pBlocks.length?`<div style="display:grid;gap:9px">${pBlocks.map(b=>`<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--paper)">
+        <div style="font-weight:700;font-size:12.5px;margin-bottom:3px">${esc(b.head)}</div>
+        <div class="muted" style="font-size:12px;line-height:1.45">${b.lines.length?esc(b.lines.join(" · ")):"profil à compléter dans l'écran « Dossier »"}</div></div>`).join("")}</div>`
+      :`<div class="muted" style="font-size:12px">Aucun PFD renseigné.</div>`}
+  </div>`;
+  const recit=`<div class="card">
+    <h2 style="color:var(--purple)">Dans vos mots <span class="sub">— racontez votre situation comme vous le souhaitez, c'est souvent le plus utile</span></h2>
+    <textarea class="in" id="a-recit" rows="4" placeholder="Qu'est-ce qui est le plus lourd en ce moment ? Qu'aimeriez-vous déléguer ? Qu'est-ce qui vous inquiète pour la suite ?" style="resize:vertical;line-height:1.5">${esc(a.recit)}</textarea>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--purpleLt)">
+      <span style="font-size:12px;color:var(--purple);line-height:1.45">Ces informations servent uniquement à vous proposer des solutions adaptées. Vous gardez la main : rien n'est retenu sans votre validation.</span></div>
+  </div>`;
+  const consent=`<button class="btn ghost" data-act="a-consent" style="display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:12px 14px;margin-bottom:12px;border:1px solid ${a.consent?'var(--teal)':'var(--line)'};background:${a.consent?'var(--tealLt)':'#fff'}">
+    <span style="width:22px;height:22px;flex-shrink:0;border-radius:6px;border:1.5px solid ${a.consent?'var(--teal)':'var(--line)'};background:${a.consent?'var(--teal)':'#fff'};display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:800">${a.consent?'✓':''}</span>
+    <span style="font-size:13px;line-height:1.45;color:var(--ink);font-weight:500">J'autorise l'analyse de ces informations (pouvant relever de la santé) pour me proposer des solutions adaptées.</span></button>`;
+  const evalBtn=`<button class="btn" data-act="a-evaluer" ${(!canEval||a.loading)?'disabled':''} style="width:100%;padding:14px 16px;font-size:15px;background:${canEval&&!a.loading?'var(--purple)':'var(--muted)'}">${a.loading?"Analyse de votre situation…":"✦ Évaluer mes besoins"}</button>
+    ${!a.consent?`<div class="muted" style="font-size:11.5px;text-align:center;margin-top:8px">Cochez l'autorisation ci-dessus pour lancer l'évaluation.</div>`:""}`;
+  let note="";
+  if(a.aiNote) note=`<div style="display:flex;align-items:center;gap:7px;margin-top:14px;font-size:12px;font-weight:600;color:${a.aiNote.kind==='warn'?'var(--goldDk)':'var(--good)'}">${a.aiNote.kind==='warn'?'ⓘ':'✦'} ${esc(a.aiNote.txt)}</div>`;
+  let besoins="";
+  if(a.besoins.length){
+    besoins=`<div class="card" style="margin-top:16px">
+      <h2 style="color:var(--purple)">Besoins anticipés <span class="sub">— des suggestions, à vous de retenir celles qui vous parlent</span></h2>
+      <div style="display:grid;gap:9px">${a.besoins.map((b,i)=>`<div style="padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:#fff">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="font-size:10.5px;font-weight:800;color:var(--teal);background:var(--tealLt);padding:3px 8px;border-radius:7px;white-space:nowrap">${b.horizon} mois</span>
+            <span style="font-weight:800;font-size:14px">${esc(A_TAXO_LABEL(b.categorie))}</span></div>
+          <span style="display:flex;gap:8px">
+            <button class="btn teal" data-act="a-besoin-retenir" data-i="${i}" style="padding:8px 13px;font-size:12.5px">✓ Retenir</button>
+            <button class="btn ghost" data-act="a-besoin-ecarter" data-i="${i}" style="padding:8px 13px;font-size:12.5px">✕ Pas pour moi</button></span>
+        </div>
+        <div class="muted" style="font-size:12.5px;line-height:1.45">${esc(b.justification||"")}</div></div>`).join("")||`<div class="muted" style="font-size:12px">Toutes les suggestions ont été traitées.</div>`}</div>
+    </div>`;
+  }
+  let relances="";
+  if(a.relances.length){
+    relances=`<div class="card" style="margin-top:16px">
+      <h2 style="color:var(--purple)">Pour affiner <span class="sub">— quelques précisions utiles, repérées dans ce que vous avez écrit</span></h2>
+      <div style="display:grid;gap:10px">${a.relances.map((r,i)=>`<div style="padding:12px 14px;border-radius:12px;background:var(--goldLt)">
+        <div style="display:flex;align-items:center;gap:9px"><span style="color:var(--goldDk);flex-shrink:0">💡</span><span style="font-size:13px;line-height:1.45">${esc(r.texte)}</span></div>
+        <input class="in" data-relance-i="${i}" value="${esc(a.reponses[i]||'')}" placeholder="Votre réponse (facultatif)…" style="margin-top:10px;background:#fff"></div>`).join("")}</div>
+      <button class="btn ghost" data-act="a-evaluer" ${a.loading?'disabled':''} style="width:100%;margin-top:12px;border-color:var(--purple);color:var(--purple)">✦ Ré-évaluer avec ces précisions</button>
+    </div>`;
+  }
+  let parcours="";
+  if(a.parcours.length){
+    parcours=`<div class="card" style="margin-top:16px">
+      <h2 style="color:var(--purple)">Mon parcours <span class="sub">— les besoins que vous avez retenus. Vous pourrez choisir un professionnel pour chacun</span></h2>
+      <div style="display:grid;gap:8px">${a.parcours.map(b=>`<button class="btn" data-act="a-parcours-pro" data-cat="${esc(b.categorie)}" style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:11px;border:1px solid var(--teal);background:var(--tealLt);color:var(--ink);font-weight:500">
+        <span style="display:flex;align-items:center;gap:9px"><span style="color:var(--teal)">✓</span><span style="font-weight:700;font-size:13.5px">${esc(A_TAXO_LABEL(b.categorie))}</span><span class="muted" style="font-size:11px">· ${b.horizon} mois</span></span>
+        <span style="color:var(--teal);font-weight:700;font-size:12.5px">Choisir un pro ›</span></button>`).join("")}</div>
+    </div>`;
+  }
+  const canAnalyse = aLines.length>0 && pBlocks.some(b=>b.lines.length>0);
+  const aTxt = A0.analyse||"";
+  let analyseInner;
+  if(!canAnalyse){
+    analyseInner = `<div class="muted" style="font-size:12px;line-height:1.45">Complétez votre profil et celui de votre proche (écran « Dossier ») pour générer le bilan situationnel.</div>`;
+  } else if(a.analyseEdit){
+    analyseInner = `<textarea class="in" id="a-analyse-txt" rows="14" style="resize:vertical;line-height:1.55;font-size:12.5px">${esc(a.analyseTexte||aTxt)}</textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="btn teal" data-act="a-analyse-valider">✓ Valider ce bilan</button>
+        <button class="btn ghost" data-act="a-analyse-generer" ${a.analyseLoading?'disabled':''}>↻ Régénérer</button>
+        ${aTxt?`<button class="btn ghost" data-act="a-analyse-annuler">Annuler</button>`:""}
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.4">Vous pouvez modifier ce texte avant de le valider. Une fois validée, cette analyse guide le choix des solutions.</div>`;
+  } else if(aTxt){
+    analyseInner = `<div style="white-space:pre-wrap;font-size:12.5px;line-height:1.55;background:var(--paper);border:1px solid var(--line);border-radius:11px;padding:13px 15px">${esc(aTxt)}</div>
+      <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="a-analyse-modifier">Modifier le bilan</button></div>
+      <div style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12px;color:var(--good);font-weight:600">✓ Bilan validé — il fait foi pour l'évaluation des besoins (RG-61).</div>`;
+  } else {
+    analyseInner = `<div class="muted" style="font-size:12px;line-height:1.45;margin-bottom:10px">À partir de votre profil et de celui de votre proche, l'assistant rédige une synthèse (~40 lignes) que vous pourrez valider ou ajuster.</div>
+      <button class="btn" data-act="a-analyse-generer" ${a.analyseLoading?'disabled':''} style="background:${a.analyseLoading?'var(--muted)':'var(--purple)'}">${a.analyseLoading?"Rédaction en cours…":"✦ Générer le bilan situationnel (assistant IA)"}</button>`;
+  }
+  const analyseCard = `<div class="card">
+    <h2 style="color:var(--purple)">Bilan situationnel <span class="sub">— ~40 lignes rédigées par l'assistant, que VOUS validez ; seule la version validée est stockée (F-44)</span></h2>
+    ${analyseInner}</div>`;
+  return `<div style="max-width:760px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:18px"><div><div style="font-weight:800;font-size:17px;color:var(--purple)">Ma situation</div><div class="muted" style="font-size:11.5px">Pour mieux anticiper vos besoins et vous guider</div></div></div>
+    ${synthese}${socle}${recit}${analyseCard}${consent}${evalBtn}${note}${besoins}${relances}${parcours}</div>`;
+}
+
+async function aidGenererAnalyse(){
+  const A0=(STATE.assures||[]).find(x=>x.id===AIDANT_ID)||{};
+  AID.analyseLoading=true; render();
+  const apTxt=profilAidantTxt(A0.profil), pdTxt=profilPfdTxt(A0.aides||[]);
+  const tachesTxt=AID.taches.map(t=>{const x=A_TACHES.find(y=>y[0]===t);return x?x[1]:t;}).join(", ")||"non précisé";
+  const chargeTxt=AID.charge.map(c=>{const x=A_CHARGE.find(y=>y[0]===c);return x?x[1]:c;}).join(", ")||"non précisé";
+  const prompt=`Données pour la synthèse situationnelle.
+
+PROFIL DE L'AIDANT :
+${apTxt}
+
+PROFIL DU / DES PROCHE(S) FAMILIAL(AUX) DÉPENDANT(S) :
+${pdTxt}
+
+ÉLÉMENTS DÉCLARÉS — tâches assumées : ${tachesTxt} ; charge ressentie : ${chargeTxt}.
+RÉCIT LIBRE DE L'AIDANT : "${AID.recit||"(non renseigné)"}"
+
+Rédige la synthèse situationnelle demandée (40 lignes maximum).`;
+  try{
+    const res=await api("POST","/api/analyse/generer",{prompt});
+    if(!res || res.texte==null) throw new Error("indispo");
+    AID.analyseTexte=String(res.texte); AID.analyseEdit=true;
+    toast("Analyse générée — relisez, ajustez si besoin, puis validez");
+  }catch(e){
+    const L=profilAidantLines(A0.profil), P=profilPfdLines(A0.aides||[]);
+    const parts=["SITUATION DE L'AIDANT"];
+    L.forEach(x=>parts.push("• "+x[0]+" : "+x[1]));
+    parts.push(""); parts.push("SITUATION DU / DES PROCHE(S)");
+    P.forEach(b=>{parts.push("• "+b.head); (b.lines||[]).forEach(l=>parts.push("   - "+l));});
+    if(AID.recit&&AID.recit.trim()){ parts.push(""); parts.push("DANS SES MOTS"); parts.push(AID.recit.trim()); }
+    parts.push(""); parts.push("(Synthèse locale — l'assistant IA n'était pas disponible. Vous pouvez la compléter avant validation.)");
+    AID.analyseTexte=parts.join("\n"); AID.analyseEdit=true;
+    toast("Assistant indisponible — synthèse locale proposée",true);
+  }
+  AID.analyseLoading=false; render();
+}
+
+async function aidEvaluer(){
+  AID.loading=true; AID.aiNote=null; AID.besoins=[]; AID.relances=[]; render();
+  const tachesTxt=AID.taches.map(t=>{const x=A_TACHES.find(y=>y[0]===t);return x?x[1]:t;}).join(", ")||"non précisé";
+  const chargeTxt=AID.charge.map(c=>{const x=A_CHARGE.find(y=>y[0]===c);return x?x[1]:c;}).join(", ")||"non précisé";
+  const A0=(STATE.assures||[]).find(x=>x.id===AIDANT_ID)||{};
+  const apTxt=profilAidantTxt(A0.profil), pdTxt=profilPfdTxt(A0.aides||[]);
+  const analyseTxt = A0.analyse ? ("\n\nSYNTHÈSE SITUATIONNELLE VALIDÉE PAR L'AIDANT (à exploiter en priorité) :\n"+A0.analyse) : "";
+  const reponsesTxt=Object.values(AID.reponses).filter(Boolean).map(r=>`• ${r}`).join("\n");
+  const taxoTxt=A_TAXO.map(t=>`${t[0]} (${t[1]})`).join(", ");
+  const prompt=`Tu es le moteur d'anticipation des besoins de l'application "Mon Parcours Aidant".${analyseTxt}
+
+PROFIL SITUATIONNEL DE L'AIDANT (analyse à exploiter en priorité) :
+${apTxt}
+
+PROFIL SITUATIONNEL DU / DES PROCHE(S) FAMILIAL(AUX) DÉPENDANT(S) :
+${pdTxt}
+
+ÉLÉMENTS DÉCLARÉS EN COMPLÉMENT — tâches assumées : ${tachesTxt} ; charge ressentie : ${chargeTxt}.
+RÉCIT LIBRE DE L'AIDANT : "${AID.recit||"(non renseigné)"}"
+${reponsesTxt?"PRÉCISIONS COMPLÉMENTAIRES :\n"+reponsesTxt:""}
+
+1) À partir de ces profils, déduis les besoins d'accompagnement les plus pertinents pour soulager l'aidant et soutenir le proche, en tenant compte des contraintes (travail posté, faible flexibilité, absence de relais, isolement, fatigue, troubles cognitifs, risques…).
+CONTRAINTE ABSOLUE : chaque besoin doit utiliser un identifiant EXACT parmi : ${taxoTxt}. N'invente aucune catégorie.
+2) Propose des "relances" douces : une information utile manquante à compléter ou une question ciblée, en t'appuyant sur les profils et le récit.
+
+Réponds UNIQUEMENT en JSON, sans texte autour :
+{"besoins":[{"categorie":"<id>","horizon":<3|6|9|12>,"justification":"<phrase courte>"}],
+ "relances":[{"type":"champ|question","texte":"<phrase courte>"}]}
+Maximum 5 besoins (du plus urgent au moins urgent) et 3 relances.`;
+  try{
+    const res=await api("POST","/api/anticiper2",{prompt});
+    if(!res || res.text==null) throw new Error("indispo");
+    const parsed=JSON.parse(String(res.text).replace(/```json|```/g,"").trim());
+    const bs=(parsed.besoins||[]).filter(b=>A_TAXO_IDS.includes(b.categorie)).slice(0,5);
+    if(!bs.length) throw new Error("empty");
+    AID.besoins=bs; AID.relances=(parsed.relances||[]).slice(0,3);
+    AID.aiNote={kind:"ok",txt:"Besoins générés par le LLM à partir du socle et de votre récit, filtrés sur le catalogue aidance-pro."};
+  }catch(e){
+    AID.besoins=[
+      {categorie:"assistance_administrative",horizon:3,justification:"Mise à jour des droits (dossier MDPH) en vue du déménagement."},
+      {categorie:"logement_social",horizon:6,justification:"Constitution d'un dossier de logement adapté."},
+      {categorie:"logement_adaptation",horizon:9,justification:"Évaluation ergothérapique du futur logement."},
+      {categorie:"accompagnement_independance",horizon:12,justification:"Accompagnement vers l'autonomie au quotidien."},
+    ];
+    AID.relances=[
+      {type:"question",texte:"Vous arrive-t-il d'avoir des nuits difficiles ? Cela ouvrirait des solutions de répit."},
+      {type:"champ",texte:"Le logement visé est-il déjà identifié, et est-il adapté ?"},
+    ];
+    AID.aiNote={kind:"warn",txt:"Appel LLM indisponible ici — exemple de résultat affiché (repli). Posez ANTHROPIC_API_KEY pour activer le LLM."};
+  }finally{ AID.loading=false; render(); }
+}
+
+/* ═══════ §5 · Trouver un pro (F-46) ═══════ */
+function aidCatalogue(a){
+  const ok=!!a.pmv_pret;
+  const f=AID.cat;
+  const rows=A_rows();
+  const results=rows.filter(r=>{
+    if(f.famille && !r.familles.includes(f.famille)) return false;
+    if(f.metier && !r.metiers.includes(f.metier)) return false;
+    if(f.modalite && !r.mod.includes(f.modalite)) return false;
+    if(f.dept){ const ok=r.mod.includes("distanciel")||r.nat||r.deps.includes(f.dept); if(!ok) return false; }
+    return true;
+  }).sort((x,y)=> x.rank-y.rank || ((x.prix==null?1e9:x.prix)-(y.prix==null?1e9:y.prix)));
+  const active=f.famille||f.metier||f.modalite||f.dept;
+  const famBtns=A_famillesList().map(x=>{const on=f.famille===x;return `<button class="chip" data-act="a-fam" data-v="${esc(x)}" style="cursor:pointer;padding:8px 13px;font-weight:600;font-size:12.5px;border:1px solid ${on?'var(--purple)':'var(--line)'};background:${on?'var(--purple)':'#fff'};color:${on?'#fff':'var(--ink)'}">${esc(x)}</button>`;}).join("");
+  const modBtns=Object.entries(A_MOD).map(([k,lab])=>{const on=f.modalite===k;return `<button class="chip" data-act="a-mod" data-v="${k}" style="cursor:pointer;padding:9px 11px;font-weight:600;font-size:12px;border:1px solid ${on?'var(--teal)':'var(--line)'};background:${on?'var(--tealLt)':'#fff'};color:${on?'var(--teal)':'var(--muted)'}">${esc(lab)}</button>`;}).join("");
+  const proAgg={};
+  rows.forEach(r=>{ const p=proAgg[r.pro_id]||(proAgg[r.pro_id]={n:0,metiers:new Set(),familles:new Set(),mod:new Set(),nat:false,deps:new Set(),min:null,max:null});
+    p.n++; r.metiers.forEach(x=>p.metiers.add(x)); r.familles.forEach(x=>p.familles.add(x)); r.mod.forEach(x=>p.mod.add(x));
+    if(r.nat) p.nat=true; r.deps.forEach(x=>p.deps.add(x));
+    const px=Number(r.prix); if(px){ p.min=p.min==null?px:Math.min(p.min,px); p.max=p.max==null?px:Math.max(p.max,px); } });
+  const proTip=r=>{ const p=proAgg[r.pro_id]; if(!p) return "";
+    const li=(lab,val)=>val?`<div style="margin-top:4px"><span style="font-weight:700">${lab}</span> ${val}</div>`:"";
+    const fams=[...p.familles]; const famTxt=esc(fams.slice(0,4).join(", "))+(fams.length>4?` +${fams.length-4}`:"");
+    const modTxt=[...p.mod].map(m=>esc(A_MOD[m]||m)).join(" · ");
+    const couv=p.nat?"France métropolitaine":`${p.deps.size} département${p.deps.size>1?"s":""}`;
+    const prix=p.min!=null?(p.min===p.max?eur(p.min):`${eur(p.min)} – ${eur(p.max)}`):"";
+    return `<span class="ptip-box"><div style="font-weight:800;font-size:13px">${esc(r.pro)}</div>
+      ${li("Métier :",esc([...p.metiers].join(", ")))}${li("Domaines :",famTxt)}${li("Modalités :",modTxt)}
+      ${li("Couverture :",esc(couv))}${li("Au catalogue :",`${p.n} prestation${p.n>1?"s":""}${prix?` (${prix})`:""}`)}</span>`; };
+  const cards=results.map(r=>{
+    const l=A_LBL[r.rank]||A_LBL[2];
+    const open=AID.demandePid===r.id;
+    const btn = open
+      ? `<div style="margin-top:11px;border-top:1px solid var(--line);padding-top:10px">
+           <label style="font-size:11px;font-weight:700;color:var(--muted)">Un mot pour le pro <span style="font-weight:500">(facultatif : votre besoin, vos disponibilités…)</span></label>
+           <textarea class="in" id="a-dv-msg" rows="2" placeholder="ex. Besoin d'aide pour le dossier MDPH, plutôt le mercredi après-midi." style="resize:vertical;margin-top:4px"></textarea>
+           <div class="row" style="margin-top:8px">
+             <button class="btn teal" data-act="a-demander-envoyer" data-pid="${esc(r.id)}" style="flex:1;font-size:13px">Envoyer la demande</button>
+             <button class="btn ghost" data-act="a-demander-devis" data-pid="${esc(r.id)}" style="flex:0 0 auto">Annuler</button>
+           </div></div>`
+      : `<button class="btn teal" data-act="a-demander-devis" data-pid="${esc(r.id)}" ${ok?'':'disabled'} style="margin-top:11px;width:100%;font-size:13px${ok?'':';background:var(--muted)'}">${ok?'Demander un devis':'🔒 PMV à activer'}</button>`;
+    return `<div style="background:var(--card);border:1px solid ${r.rank===0?'var(--gold)':'var(--line)'};border-radius:14px;padding:15px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+          <span class="chip" style="color:${l[1]};background:${l[2]}">${l[0]}</span>
+          <span class="ptip" style="font-weight:800;font-size:14.5px">${esc(r.pro)}${proTip(r)}</span></div>
+        <div style="text-align:right;white-space:nowrap"><div style="font-weight:800;font-size:15px">${eur(r.prix)}</div><div class="muted" style="font-size:10.5px">${esc(A_UNITE[r.unite]||r.unite)}</div></div>
+      </div>
+      ${r.nom?`<div style="font-weight:700;font-size:13.5px;margin-bottom:3px">${esc(r.nom)}</div>`:""}
+      ${r.desc?`<div class="muted" style="font-size:12px;line-height:1.45;margin-bottom:10px">${esc(r.desc)}${r.desc.length>=150?"…":""}</div>`:""}
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${r.metiers.map(m=>`<span style="font-size:10.5px;font-weight:600;color:var(--teal);background:var(--tealLt);padding:2px 8px;border-radius:6px">${esc(m)}</span>`).join("")}
+        ${r.mod.map(m=>`<span style="font-size:10.5px;font-weight:600;color:var(--muted);border:1px solid var(--line);padding:2px 8px;border-radius:6px">${esc(A_MOD[m]||m)}</span>`).join("")}
+        <span class="muted" style="font-size:10.5px;font-weight:600">📍 ${r.nat?"France métropolitaine":`${r.deps.length} dépt.`}</span>
+      </div>${btn}</div>`;
+  }).join("")||`<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">Aucune prestation pour ces critères.</div>`;
+  const nbPros=new Set(rows.map(r=>r.pro_id)).size;
+  return `<div style="max-width:840px;margin:0 auto">
+    ${AID.parcours.length?`<div class="card" style="background:var(--tealLt);border-color:var(--tealMid);margin-bottom:14px;padding:13px 16px">
+      <div style="font-size:12px;font-weight:800;color:var(--teal);margin-bottom:7px">VOS CATÉGORIES RETENUES (F-46) — la liste complète des professionnels pour chacune</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">${AID.parcours.map(x=>`<button class="chip" data-act="a-parcours-pro" data-cat="${esc(x.categorie)}" style="cursor:pointer;padding:8px 13px;border:1px solid ${AID.catTitre===A_TAXO_LABEL(x.categorie)?'var(--teal)':'transparent'};background:${AID.catTitre===A_TAXO_LABEL(x.categorie)?'#fff':'var(--card)'};color:var(--ink);font-weight:700;font-size:12px">✓ ${esc(A_TAXO_LABEL(x.categorie))}</button>`).join("")}</div></div>`:""}
+    <div style="margin-bottom:16px"><div style="font-weight:800;font-size:17px;color:var(--purple)">Trouver un pro${AID.catTitre?` <span class="muted" style="font-weight:600;font-size:13px">· catégorie : ${esc(AID.catTitre)}</span>`:""}</div>
+      <div class="muted" style="font-size:11.5px">Catalogue aidance-pro (F-72) · ${rows.length} prestations · ${nbPros} pros</div></div>
+    ${ok?"":`<div class="card" style="border:1px solid var(--gold);background:var(--goldLt);margin-bottom:14px;padding:12px 14px;font-size:12.5px;color:var(--goldDk)">🔒 ${esc(a.pmv_blocage||"")} ${a.pmv_etat==="bloque"?"La consultation du catalogue reste accessible (F-27).":"Les blocs à compléter sont dans l\u2019écran « Dossier ». La consultation reste libre."}</div>`}
+    <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:7px">BESOIN — FAMILLE D'AIDE <span style="font-weight:500">(anticipée par la brique 2)</span></div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px">${famBtns}</div>
+    <div class="row" style="margin-bottom:6px;align-items:center">
+      <select class="in" id="a-metier" style="flex:0 1 220px"><option value="">Tous les métiers</option>${A_metiersList().map(m=>`<option ${m===f.metier?'selected':''}>${esc(m)}</option>`).join("")}</select>
+      <select class="in" id="a-dept" style="flex:0 1 220px"><option value="">Tous départements</option>${A_deptsList().map(d=>`<option value="${d.c}" ${d.c===f.dept?'selected':''}>${d.c} — ${esc(d.n)}</option>`).join("")}</select>
+      <div style="display:flex;gap:6px">${modBtns}</div>
+      ${active?`<button class="btn ghost" data-act="a-cat-reset" style="padding:9px 12px;font-size:12px">↺ Réinitialiser</button>`:""}
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 2px 10px">
+      <div style="font-size:13px;font-weight:700">${results.length} prestation${results.length>1?'s':''}</div>
+      <div class="muted" style="font-size:11.5px">Tri : premium → labellisé → autres</div></div>
+    <div style="display:grid;gap:10px">${cards}</div>
+  </div>`;
+}
+
+/* ═══════ §6 · Assuré-aidant — écrans V1 (§3 des specs) ═══════ */
+function aidSeed(){ return {
+  tab:"accueil", boundTo:null, taches:[], charge:[],
+  recit:"", consent:false, loading:false, aiNote:null, besoins:[], relances:[], reponses:{}, parcours:[],
+  cat:{famille:"",metier:"",modalite:"",dept:""}, demandePid:null,
+  profilEdit:false, pfdEdit:null, pfdAddOpen:false,
+  analyseTexte:"", analyseEdit:false, analyseLoading:false,
+  justif:null, contesteId:null, catTitre:"",
+}; }
+let AID = aidSeed();
+
+function aidCur(){ return (STATE.assures||[]).find(x=>x.id===AIDANT_ID)||null; }
+function aidDevisDe(a){ return (STATE.devis||[]).filter(d=>d.assure_id===a.id); }
+function aidRembDe(a){ return (STATE.remboursements||[]).filter(r=>r.assure_id===a.id); }
+
+function joursRestants(iso){
+  if(!iso) return null;
+  const e=new Date(iso+"T23:59:59"), n=new Date();
+  return Math.ceil((e-n)/86400000);
+}
+
+const ETAT_PMV_CHIP={
+  utilisable:["PMV utilisable","var(--good)","#E5F2EB"],
+  verrou_rib:["Verrouillé — RIB","var(--goldDk)","var(--goldLt)"],
+  verrou_pfd:["Verrouillé — profil du proche","var(--goldDk)","var(--goldLt)"],
+  bloque:["PMV bloqué","#fff","var(--bad)"],
+};
+
+function viewAidant(){
+  const assures=STATE.assures||[];
+  if(!assures.length) return `<div class="card empty">Aucun dossier. Le gestionnaire doit pré-inscrire un assuré-aidant (F-20).</div>`;
+  let a=aidCur(); if(!a){ a=assures[0]; AIDANT_ID=a.id; }
+  if(AID.boundTo!==a.id){ const t=AID.tab; AID=aidSeed(); AID.tab=t; AID.boundTo=a.id; }
+  const ch=ETAT_PMV_CHIP[a.pmv_etat]||ETAT_PMV_CHIP.utilisable;
+  const sel=`<select class="in" id="sel-aidant" style="flex:0 1 330px;font-weight:700">
+    ${assures.map(x=>`<option value="${esc(x.id)}" ${x.id===a.id?'selected':''}>${esc(x.id)} — ${esc(x.nom_complet)}</option>`).join("")}</select>`;
+  const dosbar=`<div class="dosbar">
+    <span class="num">Dossier ${esc(a.id)}</span>
+    <span class="chip" style="color:${ch[1]};background:${ch[2]}">${ch[0]}</span>
+    <span style="font-size:11.5px;opacity:.85">N° à communiquer aux professionnels — il figure sur leurs factures (${esc((STATE.parametres||{}).email_gestion||"")}).</span>
+    <button class="btn gold" data-act="a-contact-open" style="margin-left:auto">💬 Contacter un conseiller</button>
+  </div>`;
+  const nbActions=aidActionsPrioritaires(a).length;
+  const tabs=`<div style="display:flex;gap:8px;margin:2px 0 16px;flex-wrap:wrap">
+    ${[["accueil","Accueil"],["fiche","Ma situation"],["trouver","Trouver un pro"],["prestations","Prestations"],["pmv","Mon PMV & remboursements"],["dossier","Dossier"]].map(([id,lab])=>{
+      const on=AID.tab===id;
+      const n=id==="accueil"?nbActions:0;
+      return `<button class="btn ${on?'teal':'ghost'}" data-act="a-tab" data-tab="${id}">${lab}${n>0?`<span class="nbadge">${n}</span>`:""}</button>`;
+    }).join("")}</div>`;
+  let panel;
+  if(AID.tab==="fiche") panel=aidFiche();
+  else if(AID.tab==="trouver") panel=aidCatalogue(a);
+  else if(AID.tab==="prestations") panel=aidPrestations(a);
+  else if(AID.tab==="pmv") panel=aidPmvRemb(a);
+  else if(AID.tab==="dossier") panel=aidDossier(a);
+  else panel=aidAccueil(a);
+  const demo=`<div class="muted" style="font-size:11px;margin-bottom:8px">Démo : choisissez le dossier ${sel.replace('class="in"','class="in" style="display:inline-block;width:330px;font-weight:700;padding:5px 8px;font-size:12px"')} — en production, chacun accède au sien par son lien d'activation personnel (F-40).</div>`;
+  return `<div style="max-width:980px;margin:0 auto">${demo}${dosbar}${tabs}${panel}</div>`;
+}
+
+/* — Accueil : actions prioritaires, catégories retenues, PMV en bref (F-40, F-46, F-50) — */
+function aidActionsPrioritaires(a){
+  const out=[];
+  if(a.pmv_etat==="verrou_rib")
+    out.push({txt:"Complétez votre profil et votre RIB pour activer votre PMV (étape 1/2).",btn:"Compléter mon profil",tab:"dossier"});
+  else if(a.pmv_etat==="verrou_pfd")
+    out.push({txt:"Complétez le profil de votre proche pour activer votre PMV (étape 2/2).",btn:"Compléter le profil du proche",tab:"dossier"});
+  for(const d of aidDevisDe(a)){
+    const p=(STATE.prestations||[]).find(x=>x.id===d.prestation_id)||{};
+    if(d.statut==="devisé")
+      out.push({txt:`Devis ${d.id.split("-").pop()} reçu — « ${p.nom} » : ${eur(d.total)} à accepter ou refuser.`,btn:"Voir le devis",tab:"prestations"});
+    if(d.statut==="réalisée"&&!d.service_fait){
+      const j=joursRestants(d.echeance_confirmation);
+      out.push({txt:`« ${p.nom} » déclarée réalisée — confirmez le service fait${j!=null?(j>=0?` (${j} j restants)`:" (délai expiré — le gestionnaire va vous contacter)"):""}.`,btn:"Confirmer / contester",tab:"prestations"});
+    }
+  }
+  for(const r of aidRembDe(a)) if(r.statut==="piece_demandee")
+    out.push({txt:`Remboursement « ${r.libelle} » : une pièce complémentaire est demandée.`,btn:"Déposer la pièce",tab:"pmv"});
+  if(!a.analyse && a.pmv_etat==="utilisable")
+    out.push({txt:"Faites le point sur votre situation : bilan et évaluation de vos besoins par l'assistant.",btn:"Ma situation",tab:"fiche"});
+  return out;
+}
+
+function aidAccueil(a){
+  const acts=aidActionsPrioritaires(a);
+  const bloc=a.pmv_etat==="bloque"?`<div class="card" style="border:1px solid var(--bad);background:#FBEDEC">
+      <b style="color:var(--bad)">Votre PMV est bloqué par le gestionnaire.</b>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(a.pmv.motif_blocage||"")} — Les prestations déjà engagées restent honorées ; la consultation et l'orientation restent accessibles. Contactez un conseiller pour toute question.</div></div>`:"";
+  const actions=acts.length?`<div class="card">
+      <h2>À faire en priorité</h2>
+      <div style="display:grid;gap:8px">${acts.map(x=>`<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:11px;background:var(--goldLt);flex-wrap:wrap">
+        <span style="font-size:13px;flex:1 1 300px">${esc(x.txt)}</span>
+        <button class="btn gold" data-act="a-tab" data-tab="${x.tab}" style="flex:0 0 auto">${esc(x.btn)}</button></div>`).join("")}</div></div>`
+    :`<div class="card" style="background:var(--tealLt);border-color:var(--tealMid)"><b style="color:var(--teal)">✓ Rien d'urgent.</b> <span class="muted" style="font-size:12.5px">Vos demandes suivent leur cours.</span></div>`;
+  const parcours=AID.parcours.length?`<div class="card">
+      <h2>Mon parcours <span class="sub">— vos catégories d'aide retenues (F-45) : la liste complète des professionnels pour chacune</span></h2>
+      <div style="display:grid;gap:8px">${AID.parcours.map(b=>`<button class="btn" data-act="a-parcours-pro" data-cat="${esc(b.categorie)}" style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:11px;border:1px solid var(--teal);background:var(--tealLt);color:var(--ink);font-weight:500">
+        <span style="display:flex;align-items:center;gap:9px"><span style="color:var(--teal)">✓</span><span style="font-weight:700;font-size:13.5px">${esc(A_TAXO_LABEL(b.categorie))}</span><span class="muted" style="font-size:11px">· horizon ${b.horizon} mois</span></span>
+        <span style="color:var(--teal);font-weight:700;font-size:12.5px">Voir les professionnels ›</span></button>`).join("")}</div></div>`
+    :`<div class="card"><h2>Mon parcours</h2><div class="muted" style="font-size:12.5px">Aucune catégorie retenue pour le moment. Passez par « Ma situation » pour évaluer vos besoins — ou consultez librement le catalogue dans « Trouver un pro ».</div>
+      <div class="row" style="margin-top:10px"><button class="btn teal" data-act="a-tab" data-tab="fiche">Évaluer mes besoins</button><button class="btn ghost" data-act="a-tab" data-tab="trouver">Parcourir le catalogue</button></div></div>`;
+  return `${bloc}${actions}${parcours}
+    <div class="card"><h2>Mon PMV en bref <span class="sub">— détail et historique dans « Mon PMV & remboursements »</span></h2>${pmvStrip5(a.pmv,true)}</div>`;
+}
+
+/* — Prestations : fil d'avancement par devis, service fait / contestation (F-49, F-50) — */
+function aidPrestations(a){
+  const ds=aidDevisDe(a);
+  if(!ds.length) return `<div class="card empty">Aucune prestation pour le moment. Passez par « Trouver un pro » pour demander un devis.</div>`;
+  const delai=(STATE.parametres||{}).delai_confirmation_jours||7;
+  const cards=ds.slice().reverse().map(d=>{
+    const p=(STATE.prestations||[]).find(x=>x.id===d.prestation_id)||{};
+    const proNom=A_proNom(d.pro_id);
+    let statusLine="", actions="";
+    if(d.statut==="demande") statusLine=`En attente du chiffrage du professionnel.`;
+    else if(d.statut==="devisé"){
+      statusLine=`Devis reçu : <b>${eur(d.total)}</b>${d.quantite?` (${d.quantite} × ${eur(p.prix)})`:""}. L'accepter <b>engage immédiatement</b> ce montant sur votre PMV (RG-51).`;
+      actions=a.pmv_etat==="bloque"?`<div class="muted" style="font-size:12px">PMV bloqué — acceptation impossible.</div>`
+        :`<button class="btn teal" data-act="a-dv-accepter" data-id="${esc(d.id)}">Accepter (${eur(d.total)})</button>
+          <button class="btn ghost" data-act="a-dv-refuser" data-id="${esc(d.id)}">Refuser</button>`;
+    }
+    else if(d.statut==="engagé") statusLine=`<b>${eur(d.total)}</b> engagés sur votre PMV — prestation à réaliser par ${esc(proNom)}.`;
+    else if(d.statut==="réalisée"&&!d.service_fait){
+      const j=joursRestants(d.echeance_confirmation);
+      statusLine=`Le professionnel a déclaré la prestation réalisée le ${dateFR(d.date_realisee)}. Confirmez le service fait ou contestez avant le <b>${dateFR(d.echeance_confirmation)}</b>${j!=null?(j>=0?` (${j} j restants sur ${delai})`:" — <b style='color:var(--bad)'>délai expiré, le gestionnaire est alerté</b>"):""}. La confirmation ne déclenche aucun paiement automatique : elle signale au gestionnaire que le paiement peut être effectué (F-49).`;
+      actions = AID.contesteId===d.id
+        ? `<div style="width:100%"><label style="font-size:11px;font-weight:700;color:var(--muted)">Pourquoi contestez-vous ? (non réalisée / incomplète)</label>
+           <textarea class="in" id="a-conteste-motif" rows="2" style="margin-top:4px;resize:vertical" placeholder="ex. Seules 2 heures sur 4 ont été assurées."></textarea>
+           <div class="row" style="margin-top:8px"><button class="btn bad" data-act="a-dv-contester" data-id="${esc(d.id)}">Envoyer la contestation</button>
+           <button class="btn ghost" data-act="a-conteste-toggle" data-id="">Annuler</button></div></div>`
+        : `<button class="btn teal" data-act="a-dv-servicefait" data-id="${esc(d.id)}">✓ Confirmer le service fait</button>
+           <button class="btn ghost" data-act="a-conteste-toggle" data-id="${esc(d.id)}">Contester</button>`;
+    }
+    else if(d.statut==="réalisée"&&d.service_fait)
+      statusLine=`Service fait confirmé (${esc(d.confirme_par||"assuré-aidant")}). <b>En attente du paiement par le gestionnaire</b> — vous serez notifié par e-mail (F-24).`;
+    else if(d.statut==="payé"){
+      const partiel=d.montant_paye&&Number(d.montant_paye)<Number(d.total);
+      statusLine=`Payé ${eur(d.montant_paye)} au professionnel le ${dateFR(d.date_paiement)}${partiel?` — paiement partiel, ${eur(Number(d.total)-Number(d.montant_paye))} recrédités sur votre disponible`:""}.${d.commentaire_paiement?` <span class="muted">« ${esc(d.commentaire_paiement)} »</span>`:""}`;
+    }
+    return `<div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div><div style="font-weight:800;font-size:14px">${esc(p.nom||d.prestation_id)} <span class="muted" style="font-weight:500;font-size:11.5px">· ${esc(d.id)}</span></div>
+          <div class="muted" style="font-size:12px">${esc(proNom)}${d.total?` · ${eur(d.total)}`:""}</div></div>
+      </div>
+      ${dvStepper(d)}
+      ${statusLine?`<div style="font-size:12.5px;line-height:1.5;margin-bottom:8px">${statusLine}</div>`:""}
+      ${dvMsg("Votre message",d.message,"var(--teal)")}
+      ${dvMsg("Mot du pro",d.message_pro,"var(--purple)")}
+      ${actions?`<div class="row" style="margin-top:10px">${actions}</div>`:""}
+    </div>`;
+  }).join("");
+  return `<div style="max-width:860px;margin:0 auto">${cards}</div>`;
+}
+
+/* — Mon PMV & remboursements (F-43, F-51) — */
+function aidPmvRemb(a){
+  const env=a.pmv;
+  const journal=env.mouvements.length?`<div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:14px 18px 0"><h2>Historique des mouvements <span class="sub">— libellés et commentaires du gestionnaire (F-26)</span></h2></div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Type</th><th>Libellé</th><th class="right">Montant</th><th>Commentaire du gestionnaire</th></tr></thead><tbody>
+      ${env.mouvements.slice().reverse().map(m=>`<tr>
+        <td class="muted" style="font-size:11.5px;white-space:nowrap">${dateFR(m.date)}</td>
+        <td><span class="chip" style="background:var(--paper);color:var(--ink)">${esc(m.type)}</span></td>
+        <td style="font-size:12.5px">${esc(m.libelle)}${m.ref?` <span class="muted" style="font-size:10.5px">· ${esc(m.ref)}</span>`:""}</td>
+        <td class="right" style="font-weight:700;white-space:nowrap">${eur(m.montant)}</td>
+        <td class="muted" style="font-size:12px">${m.commentaire?esc(m.commentaire):"—"}</td></tr>`).join("")}
+      </tbody></table></div></div>`:"";
+  const ST={soumise:["Soumise","En attente d'examen par le gestionnaire","var(--gold)"],
+    piece_demandee:["Pièce demandée","Déposez la pièce complémentaire ci-dessous","var(--goldDk)"],
+    "validée":["Validée","Montant engagé — virement en préparation","var(--purple)"],
+    "refusée":["Refusée","","var(--bad)"],"payée":["Payée","Virement effectué","var(--good)"]};
+  const mine=aidRembDe(a);
+  const peut=a.pmv_etat==="utilisable";
+  const form = peut ? `<div class="card">
+      <h2>Demander le remboursement d'une dépense avancée <span class="sub">— justificatif obligatoire (PDF ou image)</span></h2>
+      <div class="row">
+        <div class="f" style="flex:2 1 220px"><label>Dépense</label><input class="in" id="ar-lib" placeholder="ex. Taxi RDV médical"></div>
+        <div class="f" style="flex:1 1 150px"><label>Motif</label><input class="in" id="ar-motif" placeholder="Transport, répit…"></div>
+        <div class="f" style="flex:0 1 130px"><label>Montant (€)</label><input class="in" id="ar-montant" placeholder="0,00"></div>
+      </div>
+      <div class="row" style="align-items:center;margin-top:6px">
+        <div class="f" style="flex:2 1 240px"><label>Justificatif</label>
+          <input type="file" id="ar-file" accept="application/pdf,image/*" style="font-size:12px">
+          ${AID.justif?`<div class="muted" style="font-size:11px;margin-top:3px">✓ ${esc(AID.justif.nom)} prêt à l'envoi</div>`:""}</div>
+        <button class="btn teal" data-act="a-remb-soumettre" style="flex:0 0 auto">Envoyer au gestionnaire</button>
+      </div></div>`
+    : `<div class="card" style="border:1px solid var(--gold);background:var(--goldLt);color:var(--goldDk);font-size:12.5px">🔒 ${esc(a.pmv_blocage||"")} ${a.pmv_etat==="bloque"?"":"Les blocs à compléter sont dans l'écran « Dossier »."}</div>`;
+  const list=mine.length?`<div style="display:grid;gap:10px;margin-top:4px">${mine.slice().reverse().map(r=>{
+      const st=ST[r.statut]||["?","","var(--muted)"];
+      return `<div class="card" style="margin-bottom:0">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div><div style="font-weight:800;font-size:13.5px">${esc(r.libelle)} <span class="muted" style="font-weight:500;font-size:11px">· ${esc(r.id)}</span></div>
+            <div class="muted" style="font-size:12px">${esc(r.motif)} · demandé ${eur(r.montant)}${r.montant_valide!=null?` · validé ${eur(r.montant_valide)}${r.partiel?" (partiel — à hauteur du disponible)":""}`:""}${r.date_paiement?` · payé le ${dateFR(r.date_paiement)}`:""}</div></div>
+          <span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}</span></div>
+        <div class="muted" style="font-size:12px;margin-top:4px">${st[1]}${r.statut==="refusée"&&r.motif_refus?` Motif : ${esc(r.motif_refus)}`:""} · pièce : ${esc(r.justificatif_nom||"—")}</div>
+        ${r.statut==="piece_demandee"?`<div class="row" style="margin-top:8px;align-items:center">
+          <input type="file" id="ar-refile-${esc(r.id)}" accept="application/pdf,image/*" style="font-size:12px;flex:1 1 220px">
+          <button class="btn gold" data-act="a-remb-redeposer" data-id="${esc(r.id)}" style="flex:0 0 auto">Déposer la pièce</button></div>`:""}
+      </div>`;}).join("")}</div>`
+    :`<div class="muted" style="font-size:12.5px;margin-top:10px;text-align:center">Aucune demande de remboursement.</div>`;
+  return `<div style="max-width:900px;margin:0 auto">
+    <div class="card"><h2>Mon Porte-Monnaie Virtuel <span class="sub">— les 5 chiffres et leurs équations (F-43)</span></h2>${pmvStrip5(env)}</div>
+    ${journal}${form}${list}</div>`;
+}
+
+/* — Dossier : identité, profil (verrou 1), proches (verrou 2), demandes conseiller — */
+function aidDossier(a){
+  const idcard=`<div class="card">
+    <h2>Mon dossier</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 24px;font-size:13px">
+      <div><span class="muted">N° de dossier :</span> <b>${esc(a.id)}</b></div>
+      <div><span class="muted">État :</span> <b>${esc(a.etat_dossier)}</b></div>
+      <div><span class="muted">Titulaire :</span> <b>${esc(a.nom_complet)}</b></div>
+      <div><span class="muted">NDD retenu :</span> <b>NDD ${a.ndd} — ${esc(a.ndd_libelle||"")}</b></div>
+      <div><span class="muted">Référence contrat :</span> ${esc(a.contrat_ref||"—")}</div>
+      <div><span class="muted">Pré-inscrit le :</span> ${dateFR(a.date_preinscription)}</div>
+    </div></div>`;
+  const contacts=(a.contacts||[]).length?`<div class="card">
+    <h2>Mes demandes de contact <span class="sub">— un conseiller vous répond par le canal choisi (F-52)</span></h2>
+    <div style="display:grid;gap:6px">${a.contacts.slice().reverse().map(c=>`<div style="display:flex;gap:10px;align-items:baseline;font-size:12.5px;padding:8px 11px;border-radius:9px;background:var(--paper)">
+      <span class="chip" style="background:var(--purpleLt);color:var(--purple)">${esc(c.type)}</span>
+      <span style="flex:1">${esc(c.message||"(sans message)")}</span>
+      <span class="muted" style="font-size:11px;white-space:nowrap">${esc(c.date)}</span></div>`).join("")}</div></div>`:"";
+  return `<div style="max-width:900px;margin:0 auto">${idcard}${aidProfil(a)}${aidAidesList(a)}${contacts}</div>`;
+}
+
+/* — F-52 : modal « Contacter un conseiller » (aucun chatbot) — */
+let CONTACT={type:"rappel",msg:""};
+function contactModal(){
+  const types=[["appel","📞 Être appelé maintenant"],["rappel","🕐 Être rappelé"],["message","✉️ Laisser un message"],["rendez-vous","📅 Prendre rendez-vous"]];
+  return `<div class="modal-bg" data-act="a-contact-close">
+    <div class="modal">
+      <h2 style="margin-bottom:4px">Contacter un conseiller</h2>
+      <div class="muted" style="font-size:12px;margin-bottom:12px">Votre demande est transmise au gestionnaire, qui vous répond par le canal choisi. Aucun chatbot (F-52).</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px">
+        ${types.map(([id,lab])=>`<button class="chip" data-act="a-contact-type" data-v="${id}" style="cursor:pointer;padding:9px 12px;border:1px solid ${CONTACT.type===id?'var(--purple)':'var(--line)'};background:${CONTACT.type===id?'var(--purpleLt)':'#fff'};color:var(--ink);font-weight:600;font-size:12.5px">${lab}</button>`).join("")}
+      </div>
+      <textarea class="in" id="a-contact-msg" rows="3" placeholder="Votre message (facultatif)…" style="resize:vertical">${esc(CONTACT.msg)}</textarea>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" data-act="a-contact-envoyer">Envoyer ma demande</button>
+        <button class="btn ghost" data-act="a-contact-close">Annuler</button>
+      </div>
+    </div></div>`;
+}
+
+/* ═══════ §7 · Professionnel de l'aidance (§4 des specs, arbitrage A-1a) ═══════ */
+function proSeed(){ return { selId:null, devisQty:"", motifOpen:false }; }
+let PRO = proSeed();
+function P_presta(id){ return ((STATE&&STATE.prestations)||[]).find(p=>p.id===id)||{}; }
+function P_aidant(id){ const a=((STATE&&STATE.assures)||[]).find(x=>x.id===id); return a?a.nom_complet:id; }
+
+const P_ST={
+  demande:["À chiffrer","Demande de devis reçue","var(--gold)"],
+  "devisé":["Devis envoyé","En attente d'acceptation par l'assuré-aidant","var(--goldDk)"],
+  "engagé":["À réaliser","Montant engagé — prestation à réaliser","var(--purple)"],
+  "réalisée":["Réalisée","Déclarée réalisée","var(--tealMid)"],
+  "contestée":["Contestée","L'assuré-aidant conteste — le gestionnaire vous contactera","var(--bad)"],
+  "payé":["Payé","Virement reçu","var(--good)"],
+  "refusé":["Refusé","","var(--muted)"],
+  "annulé":["Annulé","Annulé par le gestionnaire","var(--bad)"],
+};
+
+function viewPro(){
+  const pros=(STATE.pros||[]).filter(p=>(STATE.devis||[]).some(d=>d.pro_id===p.id));
+  if(!PRO_ID||!pros.some(p=>p.id===PRO_ID)) PRO_ID=pros.length?pros[0].id:null;
+  const mes=(STATE.devis||[]).filter(d=>d.pro_id===PRO_ID);
+  const sel=pros.length?`<select class="in" id="sel-pro" style="flex:0 1 300px;font-weight:700">
+      ${pros.map(p=>`<option value="${esc(p.id)}" ${p.id===PRO_ID?'selected':''}>${esc(p.nom)}</option>`).join("")}</select>`:"";
+  const bandeau=`<div class="card" style="background:var(--blueLt);border-color:var(--blue)">
+    <div style="font-size:12.5px;line-height:1.55"><b>Accès sans compte (V1 — arbitrage A-1a).</b> À chaque demande de devis, le professionnel reçoit un
+    e-mail (adresse du catalogue aidance-pro) avec le <b>n° de dossier</b>, le besoin exprimé et un <b>lien sécurisé à usage limité</b> vers ce formulaire.
+    <span class="muted">Démo : choisissez le professionnel ${sel} pour voir ses demandes.</span></div></div>`;
+  if(!mes.length) return `<div style="max-width:900px;margin:0 auto">${bandeau}<div class="card empty">Aucune demande de devis pour ce professionnel.</div></div>`;
+  const counts={chiffrer:mes.filter(d=>d.statut==="demande").length,
+    realiser:mes.filter(d=>d.statut==="engagé").length,
+    attente:mes.filter(d=>d.statut==="réalisée").length,
+    payes:mes.filter(d=>d.statut==="payé").length};
+  const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    ${[["À chiffrer",counts.chiffrer,"var(--gold)",counts.chiffrer>0],["À réaliser",counts.realiser,"var(--purple)"],["En attente de confirmation",counts.attente,"var(--tealMid)"],["Payés",counts.payes,"var(--good)"]].map(([l,v,c,hl])=>`<div style="flex:1 1 150px;background:${hl?'var(--goldLt)':'var(--card)'};border:1px solid ${hl?'var(--gold)':'var(--line)'};border-radius:14px;padding:13px 15px"><div style="font-size:26px;font-weight:800;color:${c}">${v}</div><div class="muted" style="font-size:12px;font-weight:600">${l}</div></div>`).join("")}</div>`;
+  const rows=mes.slice().reverse().map(d=>{
+    const p=P_presta(d.prestation_id), st=P_ST[d.statut]||["?","","var(--muted)"], on=PRO.selId===d.id;
+    return `<tr style="${on?'background:var(--paper)':''}">
+      <td style="font-weight:700;font-size:12px;white-space:nowrap">${esc(d.id)}</td>
+      <td>${esc(P_aidant(d.assure_id))}</td>
+      <td style="font-size:12.5px">${esc(p.nom||"")}</td>
+      <td class="right" style="font-weight:700;white-space:nowrap">${d.total?eur(d.total):"—"}</td>
+      <td><span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}</span></td>
+      <td class="right"><button class="btn ghost" data-act="p-select" data-id="${esc(d.id)}" style="padding:6px 11px;font-size:12px">${on?"Fermer":"Ouvrir"}</button></td></tr>`;
+  }).join("");
+  const selDv=mes.find(d=>d.id===PRO.selId);
+  return `<div style="max-width:940px;margin:0 auto">${bandeau}${kpis}
+    <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table>
+      <thead><tr><th>Référence</th><th>Assuré-aidant</th><th>Prestation</th><th class="right">Montant</th><th>Statut</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>
+    ${selDv?viewProDetail(selDv):""}
+    <div class="card" style="background:var(--paper)"><div style="font-size:12px;line-height:1.5"><b>Facturation (F-62, hors outil) :</b>
+      adressez votre facture par e-mail à <b>${esc((STATE.parametres||{}).email_gestion||"gsa@assur-aidant.com")}</b> en mentionnant le
+      <b>n° de dossier</b> et la <b>référence du devis</b>. Le paiement est effectué par virement par le gestionnaire après confirmation
+      du service fait, dans la limite du montant engagé (RG-52, RG-53).</div></div></div>`;
+}
+
+function viewProDetail(d){
+  const p=P_presta(d.prestation_id), st=P_ST[d.statut]||["?","","var(--muted)"];
+  const forfait=p.unite==="Prestation complète";
+  let body="";
+  if(d.statut==="demande"){
+    const uniteLabel=p.unite==="Par jour"?"jours":"heures";
+    const q=parseFloat(String(PRO.devisQty).replace(",",".")), pu=Number(p.prix);
+    const ok=!isNaN(q)&&q>0, total=ok?+(q*pu).toFixed(2):null;
+    body=`<div>
+      <div style="font-weight:800;font-size:14.5px;margin-bottom:12px">Établir le devis</div>
+      <div class="row" style="align-items:flex-end">
+        <div class="f" style="flex:0 1 130px"><label>Quantité (${uniteLabel})</label><input class="in" id="p-qty" value="${esc(PRO.devisQty)}" placeholder="ex. 6" style="font-weight:700;font-size:15px"></div>
+        <span style="font-size:18px;color:var(--muted);margin-bottom:10px">×</span>
+        <div class="f" style="flex:0 1 130px"><label>Tarif unitaire (€)</label><input class="in" value="${esc(String(pu))}" readonly style="font-weight:700;font-size:15px;background:var(--paper)"></div>
+        <span style="font-size:18px;color:var(--muted);margin-bottom:10px">=</span>
+        <div style="margin-bottom:4px"><div id="p-total" style="font-size:24px;font-weight:800;color:var(--teal)">${total!=null?eur(total):"—"}</div></div>
+      </div>
+      <div class="f" style="margin-top:12px"><label>Un mot avec votre devis <span class="muted" style="font-weight:500">(facultatif : modalités, délais…)</span></label>
+        <textarea class="in" id="p-msg" rows="2" placeholder="ex. Je propose 4 h réparties sur 2 mercredis après-midi." style="resize:vertical"></textarea></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn teal" data-act="p-devis" data-id="${esc(d.id)}" style="flex:1;font-size:14px">Envoyer le devis à ${esc(P_aidant(d.assure_id))}</button>
+        <button class="btn ghost" data-act="p-decliner-toggle" style="flex:0 0 auto">Décliner…</button>
+      </div>
+      ${PRO.motifOpen?`<div style="margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:11px;background:var(--paper)">
+        <label style="font-size:11px;font-weight:700;color:var(--muted)">Motif du refus (obligatoire — F-60)</label>
+        <input class="in" id="p-motif" placeholder="ex. Secteur non couvert actuellement" style="margin-top:4px">
+        <div class="row" style="margin-top:8px"><button class="btn bad" data-act="p-decliner" data-id="${esc(d.id)}">Décliner la demande</button></div></div>`:""}
+    </div>`;
+  } else if(d.statut==="devisé"){
+    body=`<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-radius:13px;background:var(--goldLt)">
+        <div style="font-size:13px">${d.quantite&&!forfait?`<b>${d.quantite}</b> × ${eur(p.prix)}`:"Forfait"}</div><div style="font-size:20px;font-weight:800;color:var(--goldDk)">${eur(d.total)}</div></div>
+      <div class="muted" style="margin-top:10px;font-size:12px;line-height:1.45">ⓘ En attente d'acceptation. L'acceptation par l'assuré-aidant engage automatiquement le montant sur son PMV (RG-51) — rien n'est engagé avant.</div>`;
+  } else if(d.statut==="engagé"){
+    body=`<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:13px;background:var(--purpleLt);flex-wrap:wrap;gap:10px">
+        <div><div style="font-weight:800;font-size:14.5px">${eur(d.total)} engagés — prestation à réaliser</div><div class="muted" style="font-size:12px">La déclaration ouvrira le délai de confirmation de l'assuré-aidant (${(STATE.parametres||{}).delai_confirmation_jours} j).</div></div>
+        <button class="btn teal" data-act="p-realisee" data-id="${esc(d.id)}">Déclarer la prestation réalisée</button></div>`;
+  } else if(d.statut==="réalisée"){
+    body=`<div style="padding:14px 16px;border-radius:13px;background:var(--tealLt)">
+      <div style="font-weight:800;font-size:14px">${d.service_fait?"✓ Service fait confirmé":"Déclarée réalisée le "+dateFR(d.date_realisee)}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:3px">${d.service_fait
+        ?"En attente du virement du gestionnaire. Pensez à adresser votre facture ("+esc(d.id)+")."
+        :"L'assuré-aidant doit confirmer le service fait avant le "+dateFR(d.echeance_confirmation)+". Aucun paiement automatique : le virement est effectué par le gestionnaire après confirmation (RG-52)."}</div></div>`;
+  } else if(d.statut==="payé"){
+    const partiel=d.montant_paye&&Number(d.montant_paye)<Number(d.total);
+    body=`<div style="padding:14px 16px;border-radius:13px;background:var(--tealLt)">
+      <div style="font-weight:800;font-size:14px">✓ Payé ${eur(d.montant_paye)} le ${dateFR(d.date_paiement)}${partiel?` <span class="muted" style="font-weight:500">(partiel — engagé ${eur(d.total)})</span>`:""}</div>
+      ${d.commentaire_paiement?`<div class="muted" style="font-size:12px;margin-top:3px">« ${esc(d.commentaire_paiement)} »</div>`:""}</div>`;
+  } else if(d.statut==="contestée"){
+    body=`<div style="padding:14px 16px;border-radius:13px;background:#FBEDEC"><div style="font-weight:800;color:var(--bad)">Contestée par l'assuré-aidant</div>
+      <div class="muted" style="font-size:12.5px;margin-top:3px">« ${esc(d.motif_contestation)} » — le gestionnaire va instruire (confirmation, paiement partiel ou annulation, F-25).</div></div>`;
+  } else {
+    body=`<div style="padding:14px 16px;border-radius:13px;background:var(--paper);color:var(--muted)">✕ ${st[1]||st[0]}${d.motif_refus?` — ${esc(d.motif_refus)}`:""}${d.motif_annulation?` — ${esc(d.motif_annulation)}`:""}</div>`;
+  }
+  return `<div class="card" style="margin-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div><div style="font-weight:800;font-size:16px">${esc(p.nom||d.prestation_id)}</div>
+        <div class="muted" style="font-size:12.5px">Dossier <b>${esc(d.assure_id)}</b> · ${esc(P_aidant(d.assure_id))} · ${forfait?`forfait ${eur(p.prix)}`:`${eur(p.prix)} / ${p.unite==="Par jour"?"jour":"heure"}`} · réf. ${esc(d.id)}</div></div>
+      <span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}</span></div>
+    ${d.message?`<div style="font-size:13px;background:var(--paper);border-radius:11px;padding:11px 13px;margin-bottom:14px;line-height:1.45">Besoin exprimé : « ${esc(d.message)} »</div>`:""}
+    ${dvStepper(d)}
+    ${body}</div>`;
+}
+
+/* ═══════ §8 · Gestionnaire indemnisation (§5 des specs) ═══════ */
+function gestSeed(){ return { tab:"dossiers", q:"", selId:null, showForm:false,
+  form:{prenom:"",nom:"",email:"",contrat:REF0(),ndd:null,credit:"",commentaire:"",
+        pfdPrenom:"",pfdLien:"Mère",pfdNaissance:"",pfdNdd:""},
+  selPay:{}, selRemb:{}, dernierLien:null }; }
+function REF0(){ return (STATE&&STATE.parametres&&STATE.parametres.references_contrat[0])||""; }
+let GEST = null;
+let GM = { kind:null, ref:null, aid:null };     // modals gestionnaire
+
+function gAssure(id){ return (STATE.assures||[]).find(x=>x.id===id); }
+
+function viewGest(){
+  if(!GEST) GEST=gestSeed();
+  const alertesN=(STATE.alertes||[]).length;
+  const filePaieN=(STATE.devis||[]).filter(d=>d.statut==="réalisée"&&d.service_fait).length
+                 +(STATE.remboursements||[]).filter(r=>r.statut==="validée").length;
+  const rembN=(STATE.remboursements||[]).filter(r=>r.statut==="soumise"||r.statut==="piece_demandee").length;
+  const tabs=`<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    ${[["dossiers","Dossiers",0],["paiements","Paiements à effectuer",filePaieN],["remb","Remboursements",rembN],["alertes","Alertes",alertesN],["emails","E-mails"],["exports","Exports"]].map(([id,lab,n])=>{
+      const on=GEST.tab===id;
+      return `<button class="btn ${on?'blue':'ghost'}" data-act="g-tab" data-tab="${id}">${lab}${n>0?`<span class="nbadge">${n}</span>`:""}</button>`;
+    }).join("")}</div>`;
+  let body;
+  if(GEST.tab==="paiements") body=gPaiements();
+  else if(GEST.tab==="remb") body=gRemboursements();
+  else if(GEST.tab==="alertes") body=gAlertes();
+  else if(GEST.tab==="emails") body=gEmails();
+  else if(GEST.tab==="exports") body=gExports();
+  else body=gDossiers();
+  return `<div style="max-width:1000px;margin:0 auto">${tabs}${body}</div>`;
+}
+
+/* ───── Dossiers : liste, recherche, pré-inscription (F-20), détail ───── */
+function gDossiers(){
+  const q=(GEST.q||"").toLowerCase();
+  const assures=(STATE.assures||[]).filter(a=>!q||a.id.toLowerCase().includes(q)||a.nom_complet.toLowerCase().includes(q));
+  const form=GEST.showForm?gFormPreinscription():`<div style="margin-bottom:14px"><button class="btn blue" data-act="g-newform">+ Pré-inscrire un assuré-aidant</button></div>`;
+  const rows=assures.map(a=>{
+    const on=a.id===GEST.selId, e=a.pmv;
+    const etatCol={"Actif":"var(--good)","Pré-inscrit":"var(--goldDk)","Bloqué":"var(--bad)"}[a.etat_dossier]||"var(--muted)";
+    return `<tr style="${on?'background:var(--paper)':''}">
+      <td style="font-weight:800;font-size:12px;white-space:nowrap">${esc(a.id)}</td>
+      <td>${esc(a.nom_complet)}<div class="muted" style="font-size:11px">NDD ${a.ndd} · ${esc(a.contrat_ref.split(" — ")[0]||"")}</div></td>
+      <td><span class="chip" style="color:${etatCol};background:${etatCol}18">${esc(a.etat_dossier)}</span></td>
+      <td class="right" style="white-space:nowrap">${eur(e.disponible)}<div class="muted" style="font-size:10.5px">engagé ${eur(e.engage)}</div></td>
+      <td class="right" style="font-weight:700;white-space:nowrap">${eur(e.solde)}</td>
+      <td class="right"><button class="btn ghost" data-act="g-select" data-id="${esc(a.id)}" style="padding:6px 11px;font-size:12px">${on?"Fermer":"Gérer"}</button></td></tr>`;
+  }).join("");
+  const sel=gAssure(GEST.selId);
+  return `${form}
+    <div class="row" style="margin-bottom:10px"><div class="f" style="flex:0 1 360px"><input class="in" id="g-q" value="${esc(GEST.q)}" placeholder="Rechercher un n° de dossier, un nom…"></div></div>
+    <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table>
+      <thead><tr><th>N° dossier</th><th>Assuré-aidant</th><th>État</th><th class="right">Disponible</th><th class="right">Solde</th><th></th></tr></thead>
+      <tbody>${rows||`<tr><td colspan="6" class="empty">Aucun dossier.</td></tr>`}</tbody></table></div></div>
+    ${sel?gDossierDetail(sel):""}`;
+}
+
+function gFormPreinscription(){
+  const f=GEST.form, refs=(STATE.parametres||{}).references_contrat||[];
+  const nddBtns=[1,2,3,4,5,6].map(n=>{
+    const [lib,desc,,ok]=NDD_FULL[n], on=f.ndd===n;
+    return `<button class="nddbtn ${on?'on':''} ${ok?'':'no'}" data-act="g-ndd" data-n="${n}" ${ok?'':'disabled'}>
+      <b>NDD ${n}${ok?'':' — non éligible'}</b><small>${esc(lib)}</small></button>`;
+  }).join("");
+  return `<div class="card" style="border:1px solid var(--blue)">
+    <h2>Pré-inscrire un assuré-aidant <span class="sub">— F-20 : attribue le n° de dossier, crédite le PMV, adresse le lien d'activation</span></h2>
+    <div class="row">
+      <div class="f"><label>Prénom</label><input class="in" data-gf="prenom" value="${esc(f.prenom)}"></div>
+      <div class="f"><label>Nom</label><input class="in" data-gf="nom" value="${esc(f.nom)}"></div>
+      <div class="f" style="flex:1.4 1 210px"><label>E-mail</label><input class="in" data-gf="email" value="${esc(f.email)}" placeholder="prenom.nom@exemple.com"></div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <div class="f" style="flex:2 1 280px"><label>Référence contrat <span class="muted" style="font-weight:500">(gestion des contrats hors outil)</span></label>
+        <select class="in" data-gf="contrat">${refs.map(r=>`<option ${r===f.contrat?'selected':''}>${esc(r)}</option>`).join("")}</select></div>
+      <div class="f" style="flex:0 1 190px"><label>Crédit initial (€) <span class="muted" style="font-weight:500">— saisie libre</span></label>
+        <input class="in" data-gf="credit" value="${esc(f.credit)}" placeholder="ex. 900" style="font-weight:800;font-size:15px"></div>
+    </div>
+    <div style="font-size:12.5px;font-weight:800;margin:14px 0 8px">NDD retenu <span class="muted" style="font-weight:500">(déterminé hors outil — tableur NDD · RG-13 : 5–6 refusés)</span></div>
+    <div class="row" style="margin-bottom:4px">${nddBtns}</div>
+    <div style="font-size:12.5px;font-weight:800;margin:14px 0 8px">PFD principal <span style="color:var(--bad)">· obligatoire (RG-41)</span> <span class="muted" style="font-weight:500">— son NDD fonde le montant (RG-20/21)</span></div>
+    <div class="row">
+      <div class="f"><label>Prénom du PFD</label><input class="in" data-gf="pfdPrenom" value="${esc(f.pfdPrenom)}" placeholder="ex. Marie"></div>
+      <div class="f"><label>Lien de parenté</label><select class="in" data-gf="pfdLien">${A_LIENS.map(o=>`<option ${o===f.pfdLien?'selected':''}>${esc(o)}</option>`).join("")}</select></div>
+      <div class="f" style="flex:0 1 160px"><label>Année de naissance</label><input class="in" data-gf="pfdNaissance" value="${esc(f.pfdNaissance)}" placeholder="ex. 1948"></div>
+      <div class="f" style="flex:0 1 150px"><label>NDD du PFD</label><select class="in" data-gf="pfdNdd"><option value="">= NDD retenu</option>${[1,2,3,4].map(n=>`<option ${String(n)===String(f.pfdNdd)?'selected':''}>${n}</option>`).join("")}</select></div>
+    </div>
+    <div class="row" style="margin-top:6px"><div class="f" style="flex:1 1 100%"><label>Commentaire (journalisé sur le crédit initial — F-26)</label>
+      <input class="in" data-gf="commentaire" value="${esc(f.commentaire)}" placeholder="ex. Ouverture de droits — décision du 02/11"></div></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn blue" data-act="g-preinscrire">Pré-inscrire et créditer</button>
+      <button class="btn ghost" data-act="g-cancelform">Annuler</button>
+    </div></div>`;
+}
+
+function gDossierDetail(a){
+  const env=a.pmv;
+  const lienAct=`${location.origin+location.pathname}?dossier=${encodeURIComponent(a.id)}`;
+  const actions=`<div class="row" style="margin-top:12px">
+    <button class="btn ghost" data-act="g-crediter-open" data-id="${esc(a.id)}">+ Créditer (F-21)</button>
+    ${env.bloque
+      ?`<button class="btn teal" data-act="g-debloquer" data-id="${esc(a.id)}">Débloquer le PMV</button>`
+      :`<button class="btn bad" data-act="g-bloquer-open" data-id="${esc(a.id)}">Bloquer le PMV…</button>`}
+    <a class="btn ghost" href="${esc(lienAct)}" style="text-decoration:none">Ouvrir le portail assuré (lien d'activation)</a>
+  </div>`;
+  const journal=`<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">JOURNAL DU PMV — commentez chaque mouvement (F-26)</div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:0"><div style="overflow-x:auto"><table>
+    <thead><tr><th>Date</th><th>Type</th><th>Libellé</th><th class="right">Montant</th><th>Auteur</th><th>Commentaire</th><th></th></tr></thead><tbody>
+    ${env.mouvements.slice().reverse().map(m=>`<tr>
+      <td class="muted" style="font-size:11px;white-space:nowrap">${dateFR(m.date)}</td>
+      <td style="font-size:12px">${esc(m.type)}</td>
+      <td style="font-size:12px">${esc(m.libelle)}${m.ref?` <span class="muted" style="font-size:10px">· ${esc(m.ref)}</span>`:""}</td>
+      <td class="right" style="font-weight:700;white-space:nowrap">${eur(m.montant)}</td>
+      <td class="muted" style="font-size:11px">${esc(m.auteur||"")}</td>
+      <td style="font-size:12px">${m.commentaire?esc(m.commentaire):"<span class='muted'>—</span>"}</td>
+      <td class="right"><button class="btn ghost" data-act="g-commenter-open" data-id="${esc(a.id)}" data-mv="${esc(m.id)}" style="padding:4px 9px;font-size:11px">💬</button></td></tr>`).join("")}
+    </tbody></table></div></div></div>`;
+  const pfds=`<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">PROCHES (PFD)</div>
+    <div style="display:grid;gap:7px">${a.aides.map(x=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:var(--paper);flex-wrap:wrap">
+      <b style="font-size:13px">${esc(x.prenom)}</b><span class="muted" style="font-size:12px">${esc(x.lien)}${x.naissance?' · '+esc(x.naissance):''}</span>
+      <span class="chip" style="color:var(--purple);background:var(--purpleLt)">NDD ${x.ndd}</span>
+      ${x.principal?'<span class="chip" style="color:var(--purple);background:var(--purpleLt)">référence</span>':'<span class="chip" style="background:var(--line)">complémentaire</span>'}
+      <span class="chip" style="color:${Object.keys(x.profil||{}).length?'var(--good)':'var(--goldDk)'};background:${Object.keys(x.profil||{}).length?'var(--tealLt)':'var(--goldLt)'}">${Object.keys(x.profil||{}).length?'profil ✓':'profil à compléter par l\\u2019aidant'}</span></div>`).join("")}</div></div>`;
+  const dvs=(STATE.devis||[]).filter(d=>d.assure_id===a.id);
+  const devisBloc=dvs.length?`<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">DEVIS DU DOSSIER</div>
+    <div style="display:grid;gap:5px">${dvs.map(d=>{const p=P_presta(d.prestation_id),st=P_ST[d.statut]||["?","","var(--muted)"];
+      return `<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper);flex-wrap:wrap">
+        <b style="white-space:nowrap">${esc(d.id.split("-").pop())}</b><span style="flex:1">${esc(p.nom||"")}</span>
+        <span style="white-space:nowrap">${d.total?eur(d.total):"—"}</span>
+        <span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}${d.statut==="réalisée"&&d.service_fait?" · confirmé":""}</span></div>`;}).join("")}</div></div>`:"";
+  const rbs=(STATE.remboursements||[]).filter(r=>r.assure_id===a.id);
+  const rembBloc=rbs.length?`<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">REMBOURSEMENTS DU DOSSIER</div>
+    <div style="display:grid;gap:5px">${rbs.map(r=>`<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper)">
+      <b>${esc(r.id.split("-").pop())}</b><span style="flex:1">${esc(r.libelle)}</span><span>${eur(r.montant_valide!=null?r.montant_valide:r.montant)}</span>
+      <span class="chip" style="background:var(--line)">${esc(r.statut)}</span></div>`).join("")}</div></div>`:"";
+  const cts=a.contacts||[];
+  const contactsBloc=cts.length?`<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">DEMANDES CONSEILLER (F-52)</div>
+    <div style="display:grid;gap:5px">${cts.slice().reverse().map(c=>`<div style="display:flex;gap:9px;align-items:baseline;font-size:12px;padding:8px 11px;border-radius:9px;background:var(--goldLt)">
+      <span class="chip" style="background:#fff;color:var(--goldDk)">${esc(c.type)}</span><span style="flex:1">${esc(c.message||"(sans message)")}</span>
+      <span class="muted" style="font-size:10.5px;white-space:nowrap">${esc(c.date)}</span></div>`).join("")}</div></div>`:"";
+  return `<div class="card" style="margin-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div><div style="font-weight:800;font-size:17px;color:var(--purple)">${esc(a.id)} — ${esc(a.nom_complet)}</div>
+        <div class="muted" style="font-size:12px">${esc(a.email)}${a.telephone?` · ${esc(a.telephone)}`:""} · NDD ${a.ndd} (${esc(a.ndd_libelle||"")}) · ${esc(a.contrat_ref)} · pré-inscrit le ${dateFR(a.date_preinscription)}</div></div>
+      <span class="chip" style="color:${env.bloque?'#fff':'var(--good)'};background:${env.bloque?'var(--bad)':'#E5F2EB'}">${esc(a.etat_dossier)}${env.bloque&&env.motif_blocage?' — '+esc(env.motif_blocage):''}</span></div>
+    ${pmvStrip5(env)}
+    ${actions}${journal}${pfds}${devisBloc}${rembBloc}${contactsBloc}</div>`;
+}
+
+/* ───── File des paiements (F-22) : virement hors outil, puis saisie, en lot ───── */
+function gPaiements(){
+  const devis=(STATE.devis||[]).filter(d=>d.statut==="réalisée"&&d.service_fait);
+  const rembs=(STATE.remboursements||[]).filter(r=>r.statut==="validée");
+  const nSel=Object.values(GEST.selPay).filter(Boolean).length;
+  const rappel=`<div class="card" style="background:var(--blueLt);border-color:var(--blue);font-size:12.5px;line-height:1.5">
+    <b>Le paiement est un acte manuel (RG-52).</b> Effectuez les virements depuis la banque (hors outil), puis cochez les lignes payées et
+    « Marquer payés » : le PMV passe d'engagé à payé et l'assuré-aidant est notifié par e-mail (F-24). Paiement partiel possible ligne à ligne
+    (montant ≤ engagé — RG-53 ; le reliquat retourne au disponible).</div>`;
+  if(!devis.length&&!rembs.length) return rappel+`<div class="card empty">File vide : aucun service fait confirmé ni remboursement validé en attente de paiement.</div>`;
+  const ligne=(ref,benef,dossier,lib,montant,extra)=>`<tr>
+    <td><input type="checkbox" data-pay="${esc(ref)}" ${GEST.selPay[ref]?'checked':''}></td>
+    <td style="font-weight:700;font-size:12px;white-space:nowrap">${esc(ref)}</td>
+    <td style="font-size:12.5px">${esc(benef)}<div class="muted" style="font-size:10.5px">${esc(lib)}</div></td>
+    <td style="font-size:11.5px;white-space:nowrap">${esc(dossier)}</td>
+    <td class="right" style="font-weight:800;white-space:nowrap">${eur(montant)}</td>
+    <td class="right">${extra||""}</td></tr>`;
+  const rowsD=devis.map(d=>{const p=P_presta(d.prestation_id);
+    return ligne(d.id, A_proNom(d.pro_id)+" (pro)", d.assure_id, p.nom||"", d.total,
+      `<button class="btn ghost" data-act="g-partiel-open" data-id="${esc(d.id)}" style="padding:5px 10px;font-size:11.5px">Partiel…</button>`);}).join("");
+  const rowsR=rembs.map(r=>ligne(r.id, gAssure(r.assure_id).nom_complet+" (assuré-aidant)", r.assure_id, r.libelle, r.montant_valide,"")).join("");
+  return rappel+`<div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px">
+      <b style="font-size:14px">File des paiements à effectuer <span class="muted" style="font-weight:500;font-size:12px">(${devis.length} prestation(s), ${rembs.length} remboursement(s))</span></b>
+      <button class="btn blue" data-act="g-payer-lot" ${nSel?'':'disabled'}>Marquer payés (${nSel})</button></div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th></th><th>Référence</th><th>Bénéficiaire du virement</th><th>Dossier</th><th class="right">Montant</th><th></th></tr></thead>
+      <tbody>${rowsD}${rowsR}</tbody></table></div></div>`;
+}
+
+/* ───── Remboursements (F-23) : instruire, puis marquer payées en lot ───── */
+function gRemboursements(){
+  const aTraiter=(STATE.remboursements||[]).filter(r=>r.statut==="soumise"||r.statut==="piece_demandee");
+  const validees=(STATE.remboursements||[]).filter(r=>r.statut==="validée");
+  const closes=(STATE.remboursements||[]).filter(r=>["payée","refusée"].includes(r.statut));
+  const nSel=Object.values(GEST.selRemb).filter(Boolean).length;
+  const carte=r=>{const a=gAssure(r.assure_id);
+    return `<div class="card" style="margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div><b style="font-size:13.5px">${esc(r.libelle)}</b> <span class="muted" style="font-size:11px">· ${esc(r.id)}</span>
+          <div class="muted" style="font-size:12px">${esc(a.nom_complet)} · ${esc(r.motif)} · demandé <b>${eur(r.montant)}</b> · disponible du PMV : ${eur(a.pmv.disponible)}</div></div>
+        <span class="chip" style="background:${r.statut==='piece_demandee'?'var(--goldLt)':'var(--paper)'};color:${r.statut==='piece_demandee'?'var(--goldDk)':'var(--ink)'}">${r.statut==='piece_demandee'?'Pièce demandée':'À examiner'}</span></div>
+      <div style="font-size:12px;margin-top:6px">Justificatif : ${r.a_justificatif
+        ?`<a href="${API}/api/remboursements/${encodeURIComponent(r.id)}/justificatif" target="_blank" style="color:var(--blue);font-weight:700">${esc(r.justificatif_nom)} ↗</a>`
+        :`<span class="muted">${esc(r.justificatif_nom||"—")} (nom seul — pièce non déposée)</span>`}</div>
+      ${r.statut==="soumise"?`<div class="row" style="margin-top:10px">
+        <button class="btn teal" data-act="g-remb-valider" data-id="${esc(r.id)}">Valider (partiel automatique — RG-44)</button>
+        <button class="btn ghost" data-act="g-remb-piece" data-id="${esc(r.id)}">Demander une pièce</button>
+        <button class="btn bad" data-act="g-remb-refuser-open" data-id="${esc(r.id)}">Refuser…</button></div>`
+      :`<div class="muted" style="font-size:12px;margin-top:6px">En attente du nouveau dépôt par l'assuré-aidant (retour à « soumise »).</div>`}</div>`;};
+  const blocTraiter=aTraiter.length?`<h2 style="margin:4px 0 10px">À instruire</h2>${aTraiter.map(carte).join("")}`
+    :`<div class="card empty" style="padding:16px">Aucune demande à instruire.</div>`;
+  const blocValidees=validees.length?`<div class="card" style="padding:0;overflow:hidden;margin-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px">
+        <b style="font-size:14px">Validées — virements à saisir <span class="muted" style="font-weight:500;font-size:12px">(engagées sur le PMV)</span></b>
+        <button class="btn blue" data-act="g-remb-payer-lot" ${nSel?'':'disabled'}>Marquer payées (${nSel})</button></div>
+      <div style="overflow-x:auto"><table><thead><tr><th></th><th>Référence</th><th>Assuré-aidant</th><th>Libellé</th><th class="right">Montant validé</th></tr></thead><tbody>
+      ${validees.map(r=>`<tr><td><input type="checkbox" data-remb="${esc(r.id)}" ${GEST.selRemb[r.id]?'checked':''}></td>
+        <td style="font-weight:700;font-size:12px">${esc(r.id)}</td><td>${esc(gAssure(r.assure_id).nom_complet)}</td>
+        <td style="font-size:12.5px">${esc(r.libelle)}${r.partiel?' <span class="chip" style="background:var(--goldLt);color:var(--goldDk)">partiel</span>':''}</td>
+        <td class="right" style="font-weight:800">${eur(r.montant_valide)}</td></tr>`).join("")}
+      </tbody></table></div></div>`:"";
+  const blocCloses=closes.length?`<div style="margin-top:16px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">HISTORIQUE</div>
+    <div style="display:grid;gap:5px">${closes.slice().reverse().map(r=>`<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper)">
+      <b>${esc(r.id)}</b><span style="flex:1">${esc(r.libelle)}</span><span>${eur(r.montant_valide!=null?r.montant_valide:r.montant)}</span>
+      <span class="chip" style="background:var(--line)">${esc(r.statut)}${r.date_paiement?' le '+dateFR(r.date_paiement):''}</span></div>`).join("")}</div></div>`:"";
+  return blocTraiter+blocValidees+blocCloses;
+}
+
+/* ───── Alertes (F-25, F-70) ───── */
+function gAlertes(){
+  const al=STATE.alertes||[];
+  const head=`<div class="row" style="margin-bottom:12px;align-items:center">
+    <div class="muted" style="font-size:12.5px;flex:1 1 300px">Devis « réalisée » non confirmés à l'échéance du délai (${(STATE.parametres||{}).delai_confirmation_jours} j — A-3) et devis contestés.
+    <b>Aucune libération automatique</b> : le gestionnaire contacte l'assuré-aidant puis clôt (F-25, motif obligatoire).</div>
+    <button class="btn ghost" data-act="g-tache">▶ Exécuter la tâche quotidienne (F-70)</button></div>`;
+  if(!al.length) return head+`<div class="card empty">Aucune alerte.</div>`;
+  return head+al.map(x=>{
+    const d=(STATE.devis||[]).find(v=>v.id===x.devis_id)||{}; const p=P_presta(d.prestation_id);
+    return `<div class="card" style="border:1px solid ${x.type==='contestation'?'var(--bad)':'var(--gold)'}">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="chip" style="color:#fff;background:${x.type==='contestation'?'var(--bad)':'var(--goldDk)'}">${x.type==='contestation'?'Contestation':'Délai expiré'}</span>
+        <b style="font-size:13.5px">${esc(x.devis_id)}</b><span class="muted" style="font-size:12px">· ${esc(p.nom||"")} · ${esc(gAssure(x.assure_id)?gAssure(x.assure_id).nom_complet:x.assure_id)} · engagé ${eur(d.total)}</span></div>
+      <div style="font-size:12.5px;margin-top:6px">${esc(x.detail)}</div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn teal" data-act="g-confcompte-open" data-id="${esc(x.devis_id)}">Confirmer pour le compte de l'assuré-aidant…</button>
+        <button class="btn ghost" data-act="g-partiel-open" data-id="${esc(x.devis_id)}" data-conf="1">Payer partiellement…</button>
+        <button class="btn bad" data-act="g-annuler-open" data-id="${esc(x.devis_id)}">Annuler (désengagement intégral)…</button>
+      </div></div>`;}).join("");
+}
+
+/* ───── E-mails simulés & Exports (F-24, F-28) ───── */
+function gEmails(){
+  const ems=(GEST.emails||[]);
+  if(!GEST.emailsLoaded) return `<div class="card empty">Chargement des e-mails… <button class="btn ghost" data-act="g-emails-load">Charger</button></div>`;
+  if(!ems.length) return `<div class="card empty">Aucun e-mail émis.</div>`;
+  return `<div class="muted" style="font-size:12px;margin-bottom:10px">Notifications adressées automatiquement (F-20, F-24, §4). <b>Simulation</b> : en production, envoi réel par le serveur.</div>
+    <div style="display:grid;gap:7px">${ems.slice().reverse().map(e=>`<details class="card" style="margin-bottom:0;padding:12px 16px">
+    <summary style="cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;list-style:none">
+      <span class="muted" style="font-size:11px;white-space:nowrap">${esc(e.date)}</span>
+      <b style="font-size:12.5px;flex:1">${esc(e.objet)}</b>
+      <span class="muted" style="font-size:11.5px">→ ${esc(e.a)}</span></summary>
+    <pre style="margin-top:10px;max-height:180px;white-space:pre-wrap;font-size:11.5px">${esc(e.corps)}</pre></details>`).join("")}</div>`;
+}
+
+function gExports(){
+  const items=[["dossiers","Dossiers","n°, NDD, état, dates, les 5 soldes"],["mouvements","Mouvements PMV","journal complet, commentaires, auteurs"],
+    ["devis","Devis","cycle complet, montants payés, échéances"],["remboursements","Remboursements","demandé/validé/partiel, dates de paiement"]];
+  return `<div class="muted" style="font-size:12.5px;margin-bottom:12px">Exports CSV (F-28) — alimentent notamment le reporting assureur, réalisé hors outil (§1).</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+    ${items.map(([id,lab,desc])=>`<a class="card" style="margin:0;text-decoration:none;color:var(--ink)" href="${API}/api/exports/${id}.csv" download>
+      <div style="font-weight:800;font-size:14px">⬇ ${lab}.csv</div><div class="muted" style="font-size:11.5px;margin-top:4px">${desc}</div></a>`).join("")}</div>`;
+}
+
+/* ───── Modals gestionnaire ───── */
+function gModal(){
+  if(!GM.kind) return "";
+  const close=`<button class="btn ghost" data-act="g-modal-close">Annuler</button>`;
+  if(GM.kind==="partiel"){
+    const d=(STATE.devis||[]).find(v=>v.id===GM.ref)||{};
+    return `<div class="modal-bg" data-act="g-modal-close"><div class="modal">
+      <h2>Paiement partiel — ${esc(GM.ref)}</h2>
+      <div class="muted" style="font-size:12px;margin-bottom:10px">Montant engagé : <b>${eur(d.total)}</b>. Le reliquat retourne au disponible de l'assuré-aidant (F-22). ${GM.conf?"<b>Le service fait sera confirmé pour le compte de l'assuré-aidant (motif requis).</b>":""}</div>
+      <div class="row">
+        <div class="f" style="flex:0 1 160px"><label>Montant payé (€)</label><input class="in" id="gm-montant" placeholder="≤ ${esc(String(d.total))}" style="font-weight:800;font-size:15px"></div>
+        <div class="f"><label>${GM.conf?"Motif / commentaire (obligatoire)":"Commentaire (journalisé, visible par l'assuré-aidant)"}</label><input class="in" id="gm-comm" placeholder="ex. 4 h réalisées sur 6 — accord téléphonique"></div>
+      </div>
+      <div class="row" style="margin-top:12px"><button class="btn blue" data-act="g-partiel-payer">Marquer payé</button>${close}</div></div></div>`;
+  }
+  const cfg={
+    confcompte:{titre:"Confirmer pour le compte de l'assuré-aidant",note:"Après contact avec l'assuré-aidant (F-25). Le devis entre dans la file des paiements.",btn:"Confirmer le service fait",cls:"teal"},
+    annuler:{titre:"Annuler le devis "+(GM.ref||""),note:"Désengagement intégral : le montant retourne au disponible (F-25).",btn:"Annuler le devis",cls:"bad"},
+    refuserremb:{titre:"Refuser le remboursement "+(GM.ref||""),note:"L'assuré-aidant est notifié par e-mail avec le motif (F-24).",btn:"Refuser",cls:"bad"},
+    bloquer:{titre:"Bloquer le PMV",note:"Plus aucun devis, engagement ni remboursement. Les engagements en cours restent honorés ; consultation et orientation accessibles (F-27, RG-50).",btn:"Bloquer",cls:"bad"},
+    commenter:{titre:"Commenter le mouvement",note:"Commentaire libre, visible par l'assuré-aidant dans son historique (F-26).",btn:"Enregistrer",cls:"blue"},
+    crediter:{titre:"Créditer le PMV",note:"En V1, crédit initial et correction uniquement (F-21) ; le renouvellement annuel n'est pas outillé. Tout crédit est journalisé et irréversible — une erreur se corrige par un mouvement inverse tracé (correction négative).",btn:"Créditer",cls:"blue"},
+  }[GM.kind];
+  if(!cfg) return "";
+  const extra=GM.kind==="crediter"
+    ?`<div class="row" style="margin-bottom:8px">
+        <div class="f" style="flex:0 1 150px"><label>Montant (€)</label><input class="in" id="gm-montant" placeholder="ex. 300 ou -50" style="font-weight:800"></div>
+        <div class="f" style="flex:0 1 180px"><label>Motif</label><select class="in" id="gm-motif"><option>Crédit initial</option><option>Correction</option></select></div>
+      </div><div class="f"><label>Commentaire (journalisé — F-26)</label><input class="in" id="gm-comm" placeholder="ex. Correction d'une erreur de saisie du 02/11"></div>`
+    :`<div class="f"><label>${GM.kind==="commenter"?"Commentaire":"Motif (obligatoire)"}</label>
+       <textarea class="in" id="gm-motif-txt" rows="2" style="resize:vertical" placeholder="${GM.kind==='bloquer'?'ex. Suspicion d\\u2019usage hors objet (RG-49) — vérification en cours':'…'}">${esc(GM.prefill||"")}</textarea></div>`;
+  return `<div class="modal-bg" data-act="g-modal-close"><div class="modal">
+    <h2>${cfg.titre}</h2><div class="muted" style="font-size:12px;margin-bottom:10px">${cfg.note}</div>
+    ${extra}
+    <div class="row" style="margin-top:12px"><button class="btn ${cfg.cls}" data-act="g-modal-go">${cfg.btn}</button>${close}</div></div></div>`;
+}
+
+/* ═══════ §9 · Écouteurs d'événements ═══════ */
+document.addEventListener("change", async (e)=>{
+  if(e.target.id==="sel-aidant"){ AIDANT_ID=e.target.value; AID=aidSeed(); AID.boundTo=AIDANT_ID; render(); return; }
+  if(e.target.id==="sel-pro"){ PRO_ID=e.target.value; PRO.selId=null; render(); return; }
+  if(e.target.id==="a-metier"){ AID.cat.metier=e.target.value; render(); return; }
+  if(e.target.id==="a-dept"){ AID.cat.dept=e.target.value; render(); return; }
+  if(e.target.id==="ar-file"){
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    if(f.size>3500000){ toast("Fichier trop volumineux (max 3,5 Mo pour la démo)",true); e.target.value=""; return; }
+    const rd=new FileReader();
+    rd.onload=()=>{ AID.justif={nom:f.name,data:String(rd.result)}; render(); };
+    rd.readAsDataURL(f); return;
+  }
+  if(e.target.dataset && e.target.dataset.pay!==undefined){ GEST.selPay[e.target.dataset.pay]=e.target.checked; render(); return; }
+  if(e.target.dataset && e.target.dataset.remb!==undefined){ GEST.selRemb[e.target.dataset.remb]=e.target.checked; render(); return; }
+  if(e.target.dataset && e.target.dataset.gf!==undefined){ GEST.form[e.target.dataset.gf]=e.target.value; return; }
+});
+
+document.addEventListener("input",(e)=>{
+  if(e.target.id==="a-recit"){ AID.recit=e.target.value; return; }
+  if(e.target.dataset && e.target.dataset.relanceI!==undefined){ AID.reponses[e.target.dataset.relanceI]=e.target.value; return; }
+  if(e.target.dataset && e.target.dataset.gf!==undefined){ GEST.form[e.target.dataset.gf]=e.target.value; return; }
+  if(e.target.id==="g-q"){ GEST.q=e.target.value; render();
+    const el=$("#g-q"); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } return; }
+  if(e.target.id==="p-qty"){ PRO.devisQty=e.target.value;
+    const sel=(STATE.devis||[]).find(d=>d.id===PRO.selId); const p=sel?P_presta(sel.prestation_id):null;
+    const q=parseFloat(String(PRO.devisQty).replace(",",".")), pu=p?Number(p.prix):NaN;
+    const tot=$("#p-total"); if(tot) tot.textContent=(!isNaN(q)&&q>0&&!isNaN(pu))?eur(+(q*pu).toFixed(2)):"—"; return; }
+});
+
+document.addEventListener("click", async (e)=>{
+  const b=e.target.closest("[data-act]");
+  if(!b) return;
+  const act=b.dataset.act, id=b.dataset.id;
+  try{
+    /* ── global ── */
+    if(act==="role"){ ROLE=b.dataset.role; render(); return; }
+    if(act==="connect"){ API=$("#apiUrl").value.trim().replace(/\/+$/,""); AIDANT_ID=null; PRO_ID=null; AID=aidSeed(); GEST=null; PRO=proSeed(); await refresh(); toast("Connecté"); return; }
+    if(act==="reset"){ await api("POST","/api/reset"); AIDANT_ID=null; PRO_ID=null; AID=aidSeed(); GEST=null; PRO=proSeed(); MODAL=""; await refresh(); toast("État réinitialisé (jeu d'essai V1)"); return; }
+
+    /* ── assuré-aidant : navigation, contact conseiller (F-52) ── */
+    if(act==="a-tab"){ AID.tab=b.dataset.tab; render(); return; }
+    if(act==="a-contact-open"){ CONTACT={type:"rappel",msg:""}; MODAL=contactModal; render(); return; }
+    if(act==="a-contact-close"){ if(e.target!==b) return; MODAL=""; render(); return; }
+    if(act==="a-contact-type"){ CONTACT.msg=($("#a-contact-msg")&&$("#a-contact-msg").value)||CONTACT.msg; CONTACT.type=b.dataset.v; render(); return; }
+    if(act==="a-contact-envoyer"){
+      const msg=($("#a-contact-msg")&&$("#a-contact-msg").value.trim())||"";
+      await api("POST","/api/assures/"+AIDANT_ID+"/contacts",{type:CONTACT.type,message:msg});
+      MODAL=""; await refresh(); toast("Demande transmise — un conseiller vous répond par le canal choisi"); return; }
+
+    /* ── Ma situation (F-44/F-45) — handlers des blocs réutilisés ── */
+    if(act==="a-tache"){ const v=b.dataset.v; AID.taches=AID.taches.includes(v)?AID.taches.filter(x=>x!==v):[...AID.taches,v]; render(); return; }
+    if(act==="a-charge"){ const v=b.dataset.v; AID.charge=AID.charge.includes(v)?AID.charge.filter(x=>x!==v):[...AID.charge,v]; render(); return; }
+    if(act==="a-consent"){ AID.consent=!AID.consent; render(); return; }
+    if(act==="a-evaluer"){ await aidEvaluer(); return; }
+    if(act==="a-besoin-retenir"){ const i=Number(b.dataset.i); const bn=AID.besoins[i]; if(bn){ AID.parcours=[...AID.parcours,bn]; AID.besoins=AID.besoins.filter((_,k)=>k!==i); } render(); return; }
+    if(act==="a-besoin-ecarter"){ const i=Number(b.dataset.i); AID.besoins=AID.besoins.filter((_,k)=>k!==i); render(); return; }
+    if(act==="a-parcours-pro"){ const fam=A_TAXO_FAMILLE[b.dataset.cat]; AID.cat={famille:fam||"",metier:"",modalite:"",dept:""}; AID.catTitre=A_TAXO_LABEL(b.dataset.cat); AID.tab="trouver"; render(); return; }
+    if(act==="a-analyse-generer"){ await aidGenererAnalyse(); return; }
+    if(act==="a-analyse-valider"){ const t=($("#a-analyse-txt")&&$("#a-analyse-txt").value)||""; if(!t.trim()){ toast("Le bilan est vide",true); return; }
+      await api("POST","/api/assures/"+AIDANT_ID+"/analyse",{texte:t});
+      AID.analyseEdit=false; AID.analyseTexte=""; await refresh(); toast("Bilan validé — seule cette version est stockée (F-44)"); return; }
+    if(act==="a-analyse-modifier"){ const A0=(STATE.assures||[]).find(x=>x.id===AIDANT_ID)||{}; AID.analyseEdit=true; AID.analyseTexte=A0.analyse||""; render(); return; }
+    if(act==="a-analyse-annuler"){ AID.analyseEdit=false; AID.analyseTexte=""; render(); return; }
+
+    /* ── Trouver un pro (F-46/F-47) ── */
+    if(act==="a-fam"){ const v=b.dataset.v; AID.cat.famille=AID.cat.famille===v?"":v; AID.catTitre=""; render(); return; }
+    if(act==="a-mod"){ const v=b.dataset.v; AID.cat.modalite=AID.cat.modalite===v?"":v; render(); return; }
+    if(act==="a-cat-reset"){ AID.cat={famille:"",metier:"",modalite:"",dept:""}; AID.catTitre=""; render(); return; }
+    if(act==="a-demander-devis"){ AID.demandePid=(AID.demandePid===b.dataset.pid?null:b.dataset.pid); render(); return; }
+    if(act==="a-demander-envoyer"){ const msg=($("#a-dv-msg")&&$("#a-dv-msg").value.trim())||"";
+      await api("POST","/api/devis",{assure_id:AIDANT_ID,prestation_id:b.dataset.pid,message:msg});
+      AID.demandePid=null; AID.tab="prestations"; await refresh(); toast("Demande envoyée — le pro reçoit un e-mail avec votre n° de dossier et un lien de chiffrage"); return; }
+
+    /* ── Prestations (F-48/F-49) ── */
+    if(act==="a-dv-accepter"){ await api("POST",`/api/devis/${id}/accepter`); await refresh(); toast("Devis accepté — montant engagé automatiquement sur votre PMV (RG-51)"); return; }
+    if(act==="a-dv-refuser"){ await api("POST",`/api/devis/${id}/refuser`); await refresh(); toast("Devis refusé"); return; }
+    if(act==="a-dv-servicefait"){ await api("POST",`/api/devis/${id}/service-fait`,{}); await refresh(); toast("Service fait confirmé — le gestionnaire peut procéder au paiement (aucun paiement automatique)"); return; }
+    if(act==="a-conteste-toggle"){ AID.contesteId=b.dataset.id||null; render(); return; }
+    if(act==="a-dv-contester"){ const m=($("#a-conteste-motif")&&$("#a-conteste-motif").value.trim())||"";
+      if(!m){ toast("Précisez pourquoi (non réalisée / incomplète)",true); return; }
+      await api("POST",`/api/devis/${id}/contester`,{motif:m});
+      AID.contesteId=null; await refresh(); toast("Contestation transmise — le gestionnaire va vous contacter (F-25)"); return; }
+
+    /* ── Remboursements côté assuré-aidant (F-51) ── */
+    if(act==="a-remb-soumettre"){
+      const lib=($("#ar-lib")&&$("#ar-lib").value.trim())||"";
+      const motif=($("#ar-motif")&&$("#ar-motif").value.trim())||"—";
+      const montant=($("#ar-montant")&&$("#ar-montant").value.trim())||"";
+      if(!lib){ toast("Indiquez la dépense",true); return; }
+      if(!montant||isNaN(parseFloat(montant.replace(",",".")))){ toast("Indiquez un montant valide",true); return; }
+      if(!AID.justif){ toast("Déposez le justificatif (PDF ou image) — obligatoire (F-51)",true); return; }
+      await api("POST","/api/remboursements",{assure_id:AIDANT_ID,libelle:lib,motif,
+        montant:montant.replace(",","."),justificatif_nom:AID.justif.nom,justificatif_data:AID.justif.data});
+      AID.justif=null; await refresh(); toast("Demande envoyée au gestionnaire avec votre justificatif"); return; }
+    if(act==="a-remb-redeposer"){
+      const inp=$("#ar-refile-"+CSS.escape(id)); const f=inp&&inp.files&&inp.files[0];
+      if(!f){ toast("Choisissez d'abord le fichier",true); return; }
+      if(f.size>3500000){ toast("Fichier trop volumineux (max 3,5 Mo)",true); return; }
+      const data=await new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(String(r.result)); r.readAsDataURL(f); });
+      await api("POST",`/api/remboursements/${id}/redeposer`,{justificatif_nom:f.name,justificatif_data:data});
+      await refresh(); toast("Pièce déposée — la demande repasse « soumise »"); return; }
+
+    /* ── Profil & PFD (F-41/F-42) — handlers des blocs réutilisés ── */
+    if(act==="a-profil-edit"){ AID.profilEdit=!AID.profilEdit; render(); return; }
+    if(act==="a-profil-completer"){
+      const iban=pfVal("ai-iban"), tel=pfVal("ai-tel");
+      const adresse=pfVal("pf-adresse"), cp=pfVal("pf-cp"), ville=pfVal("pf-ville"), marital=pfVal("pf-marital");
+      if(!iban){ toast("Renseignez votre IBAN (RIB)",true); return; }
+      if(!adresse||!cp||!ville){ toast("Renseignez vos coordonnées postales (adresse, code postal, ville)",true); return; }
+      if(!marital){ toast("Indiquez votre situation familiale",true); return; }
+      const profil={ adresse,cp,ville,marital, foyer:pfVal("pf-foyer"), enfants:pfVal("pf-enfants"),
+        cohabite:pfVal("pf-cohabite"), distance:pfVal("pf-distance"), anciennete:pfVal("pf-anciennete"),
+        heures:pfVal("pf-heures"), nuit:pfVal("pf-nuit"), taches:pfGrp("pf-taches"),
+        statutpro:pfVal("pf-statutpro"), contrat:pfVal("pf-contrat"), temps:pfVal("pf-temps"),
+        poste:pfVal("pf-poste"), flex:pfVal("pf-flex"), amenage:pfGrp("pf-amenage"),
+        coaidants:pfVal("pf-coaidants"), role:pfVal("pf-role"), relais:pfVal("pf-relais"),
+        aidesh:pfGrp("pf-aidesh"), aidesf:pfGrp("pf-aidesf"), aidesf_autre:pfVal("pf-aidesf-autre"),
+        sante:pfVal("pf-sante"), fatigue:pfVal("pf-fatigue"), dispo:pfGrp("pf-dispo"), besoins:pfGrp("pf-besoins") };
+      await api("POST","/api/assures/"+(b.dataset.id||AIDANT_ID)+"/profil",{iban,telephone:tel,profil});
+      AID.profilEdit=false; await refresh(); toast("Profil enregistré (verrou 1 levé)"); return; }
+    if(act==="a-pfd-edit"){ AID.pfdEdit=(AID.pfdEdit===b.dataset.id?null:b.dataset.id); render(); return; }
+    if(act==="a-pfd-add-toggle"){ AID.pfdAddOpen=!AID.pfdAddOpen; render(); return; }
+    if(act==="a-pfd-add"){
+      const prenom=pfVal("pfd-new-prenom"), lien=($("#pfd-new-lien")&&$("#pfd-new-lien").value)||"Père";
+      if(!prenom){ toast("Indiquez le prénom du proche",true); return; }
+      const r=await api("POST","/api/assures/"+AIDANT_ID+"/aides",{prenom,lien,principal:false});
+      AID.pfdAddOpen=false; AID.pfdEdit=r.aides[r.aides.length-1].id; await refresh(); toast("Proche ajouté — complétez son profil"); return; }
+    if(act==="a-pfd-save"){
+      const profil={ naissance:pfVal("pd-naissance"), lieu:pfVal("pd-lieu"), logement:pfVal("pd-logement"),
+        adapte:pfVal("pd-adapte"), environ:pfVal("pd-environ"),
+        nature:pfVal("pd-nature"), patho:pfVal("pd-patho"), mobilite:pfVal("pd-mobilite"), cognitif:pfVal("pd-cognitif"),
+        avq:pfGrp("pd-avq"), isolement:pfVal("pd-isolement"), entourage:pfVal("pd-entourage"),
+        aidesh:pfGrp("pd-aidesh"), aidesf:pfGrp("pd-aidesf"), aidesf_autre:pfVal("pd-aidesf-autre"), aidest:pfGrp("pd-aidest"),
+        risques:pfGrp("pd-risques"), besoins:pfGrp("pd-besoins") };
+      await api("POST","/api/assures/"+AIDANT_ID+"/aides/"+b.dataset.id+"/profil",{profil});
+      AID.pfdEdit=null; await refresh(); toast("Profil du proche enregistré"); return; }
+
+    /* ── professionnel (F-60/F-61) ── */
+    if(act==="p-select"){ PRO.selId=(PRO.selId===id?null:id); PRO.devisQty=""; PRO.motifOpen=false; render(); return; }
+    if(act==="p-devis"){ const q=parseFloat(String(PRO.devisQty).replace(",","."));
+      if(isNaN(q)||q<=0){ toast("Indiquez une quantité",true); return; }
+      const mp=($("#p-msg")&&$("#p-msg").value.trim())||"";
+      await api("POST",`/api/devis/${id}/etablir`,{quantite:String(q),message_pro:mp});
+      PRO.devisQty=""; await refresh(); toast("Devis envoyé — l'assuré-aidant est notifié par e-mail"); return; }
+    if(act==="p-decliner-toggle"){ PRO.motifOpen=!PRO.motifOpen; render(); return; }
+    if(act==="p-decliner"){ const m=($("#p-motif")&&$("#p-motif").value.trim())||"";
+      if(!m){ toast("Motif obligatoire (F-60)",true); return; }
+      await api("POST",`/api/devis/${id}/refuser-pro`,{motif:m});
+      PRO.motifOpen=false; await refresh(); toast("Demande déclinée"); return; }
+    if(act==="p-realisee"){ await api("POST",`/api/devis/${id}/realisee`);
+      await refresh(); toast("Prestation déclarée réalisée — le délai de confirmation de l'assuré-aidant est ouvert"); return; }
+
+    /* ── gestionnaire ── */
+    if(act==="g-tab"){ GEST.tab=b.dataset.tab; if(b.dataset.tab==="emails"&&!GEST.emailsLoaded){ await chargerEmails(); } render(); return; }
+    if(act==="g-emails-load"){ await chargerEmails(); render(); return; }
+    if(act==="g-newform"){ GEST.showForm=true; render(); return; }
+    if(act==="g-cancelform"){ GEST.showForm=false; render(); return; }
+    if(act==="g-ndd"){ GEST.form.ndd=Number(b.dataset.n); render(); return; }
+    if(act==="g-select"){ GEST.selId=(GEST.selId===id?null:id); render(); return; }
+    if(act==="g-preinscrire"){
+      const f=GEST.form;
+      if(!f.prenom.trim()||!f.nom.trim()||!f.email.trim()){ toast("Prénom, nom et e-mail requis",true); return; }
+      if(!f.ndd){ toast("Sélectionnez le NDD retenu (1–4)",true); return; }
+      if(!f.credit||isNaN(parseFloat(String(f.credit).replace(",",".")))){ toast("Indiquez le crédit initial (saisie libre)",true); return; }
+      if(!f.pfdPrenom.trim()||!f.pfdNaissance.trim()){ toast("PFD principal obligatoire : prénom et année de naissance (RG-41)",true); return; }
+      const r=await api("POST","/api/preinscriptions",{prenom:f.prenom.trim(),nom:f.nom.trim(),email:f.email.trim(),
+        contrat_ref:f.contrat,ndd:f.ndd,credit:String(f.credit).replace(",","."),commentaire:f.commentaire.trim(),
+        lien_base:location.origin+location.pathname,
+        pfd:{prenom:f.pfdPrenom.trim(),lien:f.pfdLien,naissance:f.pfdNaissance.trim(),ndd:f.pfdNdd||f.ndd}});
+      GEST.showForm=false; GEST.form=gestSeed().form; GEST.selId=r.id;
+      await refresh(); toast(`Dossier ${r.id} ouvert · PMV crédité · lien d'activation adressé (e-mail simulé)`); return; }
+    if(act==="g-crediter-open"){ GM={kind:"crediter",ref:null,aid:id}; MODAL=gModal; render(); return; }
+    if(act==="g-bloquer-open"){ GM={kind:"bloquer",ref:null,aid:id}; MODAL=gModal; render(); return; }
+    if(act==="g-debloquer"){ await api("POST",`/api/assures/${id}/debloquer`,{commentaire:"Déblocage"}); await refresh(); toast("PMV débloqué"); return; }
+    if(act==="g-commenter-open"){ const a=gAssure(id); const mv=(a.pmv.mouvements||[]).find(m=>m.id===b.dataset.mv);
+      GM={kind:"commenter",ref:b.dataset.mv,aid:id,prefill:mv?mv.commentaire:""}; MODAL=gModal; render(); return; }
+    if(act==="g-partiel-open"){ GM={kind:"partiel",ref:id,aid:null,conf:b.dataset.conf==="1"}; MODAL=gModal; render(); return; }
+    if(act==="g-confcompte-open"){ GM={kind:"confcompte",ref:id}; MODAL=gModal; render(); return; }
+    if(act==="g-annuler-open"){ GM={kind:"annuler",ref:id}; MODAL=gModal; render(); return; }
+    if(act==="g-remb-refuser-open"){ GM={kind:"refuserremb",ref:id}; MODAL=gModal; render(); return; }
+    if(act==="g-modal-close"){ if(e.target!==b) return; GM={kind:null}; MODAL=""; render(); return; }
+    if(act==="g-modal-go"){
+      const txt=($("#gm-motif-txt")&&$("#gm-motif-txt").value.trim())||"";
+      if(GM.kind==="confcompte"){ if(!txt){ toast("Motif obligatoire (F-25)",true); return; }
+        await api("POST",`/api/devis/${GM.ref}/service-fait`,{par:"gestionnaire",motif:txt}); toast("Service fait confirmé pour le compte de l'assuré-aidant — devis payable"); }
+      else if(GM.kind==="annuler"){ if(!txt){ toast("Motif obligatoire (F-25)",true); return; }
+        await api("POST",`/api/devis/${GM.ref}/annuler`,{motif:txt}); toast("Devis annulé — montant intégralement désengagé"); }
+      else if(GM.kind==="refuserremb"){ if(!txt){ toast("Motif obligatoire",true); return; }
+        await api("POST",`/api/remboursements/${GM.ref}/refuser`,{motif:txt}); toast("Remboursement refusé — assuré-aidant notifié (F-24)"); }
+      else if(GM.kind==="bloquer"){ if(!txt){ toast("Motif obligatoire (F-27)",true); return; }
+        await api("POST",`/api/assures/${GM.aid}/bloquer`,{motif:txt}); toast("PMV bloqué — crédit acquis conservé (RG-50)"); }
+      else if(GM.kind==="commenter"){
+        await api("POST",`/api/assures/${GM.aid}/mouvements/${GM.ref}/commenter`,{commentaire:txt}); toast("Commentaire enregistré — visible par l'assuré-aidant (F-26)"); }
+      else if(GM.kind==="crediter"){
+        const m=($("#gm-montant")&&$("#gm-montant").value.trim())||"";
+        const motif=($("#gm-motif")&&$("#gm-motif").value)||"Crédit initial";
+        const comm=($("#gm-comm")&&$("#gm-comm").value.trim())||"";
+        if(!m||isNaN(parseFloat(m.replace(",",".")))){ toast("Montant invalide",true); return; }
+        await api("POST",`/api/assures/${GM.aid}/crediter`,{montant:m.replace(",","."),motif,commentaire:comm}); toast("PMV crédité — mouvement journalisé, irréversible (F-21)"); }
+      GM={kind:null}; MODAL=""; await refresh(); return; }
+    if(act==="g-partiel-payer"){
+      const m=($("#gm-montant")&&$("#gm-montant").value.trim())||"";
+      const comm=($("#gm-comm")&&$("#gm-comm").value.trim())||"";
+      if(!m||isNaN(parseFloat(m.replace(",",".")))){ toast("Montant invalide",true); return; }
+      if(GM.conf){ if(!comm){ toast("Motif obligatoire (F-25)",true); return; }
+        await api("POST",`/api/devis/${GM.ref}/service-fait`,{par:"gestionnaire",motif:comm}); }
+      await api("POST",`/api/devis/${GM.ref}/payer`,{montant:m.replace(",","."),commentaire:comm});
+      GM={kind:null}; MODAL=""; await refresh(); toast("Paiement partiel saisi — reliquat recrédité, assuré-aidant notifié (F-24)"); return; }
+    if(act==="g-payer-lot"){
+      const devis=Object.keys(GEST.selPay).filter(k=>GEST.selPay[k]&&k.includes("-D"));
+      const rembs=Object.keys(GEST.selPay).filter(k=>GEST.selPay[k]&&k.includes("-R"));
+      const r=await api("POST","/api/paiements",{devis,remboursements:rembs,commentaire:"Virement CERA du jour"});
+      GEST.selPay={};
+      await refresh();
+      toast(`${r.payes.length} paiement(s) saisi(s)`+(r.erreurs.length?` · ${r.erreurs.length} erreur(s) : ${r.erreurs[0].erreur}`:"")+" — e-mails adressés (F-24)", r.erreurs.length>0); return; }
+    if(act==="g-remb-valider"){ const r=await api("POST",`/api/remboursements/${id}/valider`);
+      await refresh(); toast(`Validé ${eur(r.montant_valide)}${r.partiel?" (partiel — à hauteur du disponible, RG-44)":""} — montant engagé, assuré-aidant notifié`); return; }
+    if(act==="g-remb-piece"){ await api("POST",`/api/remboursements/${id}/piece`); await refresh(); toast("Pièce complémentaire demandée"); return; }
+    if(act==="g-remb-payer-lot"){
+      const rembs=Object.keys(GEST.selRemb).filter(k=>GEST.selRemb[k]);
+      const r=await api("POST","/api/paiements",{devis:[],remboursements:rembs,commentaire:"Virement CERA du jour"});
+      GEST.selRemb={};
+      await refresh(); toast(`${r.payes.length} remboursement(s) marqué(s) payé(s) — e-mails adressés (F-24)`); return; }
+    if(act==="g-tache"){ const t=await api("POST","/api/tache-quotidienne");
+      await refresh(); toast(t.message); return; }
+  }catch(err){
+    toast(err.message||"Erreur",true);
+  }
+});
+
+async function chargerEmails(){
+  try{ const r=await api("GET","/api/emails"); GEST.emails=r.emails||[]; GEST.emailsLoaded=true; }
+  catch(e){ GEST.emails=[]; GEST.emailsLoaded=true; }
+}
+
+/* ── amorçage : lien d'activation ?dossier=GSA-AA-NNNNN (F-40) ── */
+(function(){
+  try{
+    const m=new URLSearchParams(location.search).get("dossier");
+    if(m){ ROLE="aidant"; AIDANT_ID=m; }
+  }catch(_){ }
+})();
+$("#apiUrl").value = API;
+refresh();
+</script>
+</body>
+</html>
