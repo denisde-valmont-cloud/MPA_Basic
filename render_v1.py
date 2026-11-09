@@ -122,6 +122,7 @@ cap("gDossiers",()=>{GEST=gestSeed(); return viewGest();});
 cap("gDossierDetail",()=>gDossierDetail(READY));
 cap("gDossierDetail_verrou",()=>gDossierDetail(BLOCKED));
 cap("gForm",()=>{GEST.showForm=true; const r=viewGest(); GEST.showForm=false; return r;});
+cap("gFormNewContrat",()=>{GEST.showForm=true; GEST.newContrat="GSA-2026-0003"; const r=viewGest(); GEST.showForm=false; GEST.newContrat=null; return r;});
 cap("gPaiements",()=>{GEST.tab="paiements"; return viewGest();});
 cap("gRemb",()=>{GEST.tab="remb"; return viewGest();});
 GEST.brdOpen="BRD-26-001";
@@ -211,6 +212,8 @@ GM={kind:null};
     "gest alertes : facture attendue (A-3) + tâche F-70": /Facture attendue/.test(out.gAlertes) && /tâche quotidienne \(F-70\)/.test(out.gAlertes),
     "gest alertes : Facture reçue + Annuler (litige)": /Facture reçue \(vaut validation\)/.test(out.gAlertes) && /Annuler \(litige/.test(out.gAlertes),
     "gest form PFD obligatoire": /PFD principal/.test(out.gForm) && /obligatoire \(RG-41\)/.test(out.gForm),
+    "gest form : référentiel contrats + bouton d'ajout": /Référence contrat/.test(out.gForm) && /Nouveau contrat au référentiel/.test(out.gForm) && /GSA-2026-0002/.test(out.gForm),
+    "gest form : saisie nouveau contrat ouverte": /g-contrat-ref/.test(out.gFormNewContrat) && /g-contrat-ajouter/.test(out.gFormNewContrat),
     "gest form crédit libre": /saisie libre/.test(out.gForm),
     "gest NDD 5-6 refusés": /NDD 5 — non éligible/.test(out.gForm),
     "gest dossier journal commenter": /g-commenter-open/.test(out.gDossierDetail),

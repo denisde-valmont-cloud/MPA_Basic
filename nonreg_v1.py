@@ -80,6 +80,26 @@ T("RG-41 refus sans PFD principal", c2 == 400 and "PFD" in r2.get("error",""))
 c3, r3, _ = req("POST", "/api/preinscriptions", {"prenom":"X","nom":"Y","email":"x@y.fr",
     "contrat_ref":"", "ndd":5, "credit":"100", "pfd":{"prenom":"A","lien":"Père","naissance":"1940"}})
 T("RG-13 refus NDD 5", c3 == 400 and "RG-13" in r3.get("error",""))
+
+# ── F-20 : référentiel des contrats tenu par le gestionnaire ─────────────
+c, r, _ = req("POST", "/api/preinscriptions", {"prenom":"X","nom":"Y","email":"x@y.fr",
+    "contrat_ref":"GSA-9999-INCONNU", "ndd":2, "credit":"100",
+    "pfd":{"prenom":"A","lien":"Père","naissance":"1940"}})
+T("F-20 référence contrat hors référentiel refusée", c == 400 and "référentiel" in r.get("error",""))
+c, r, _ = req("POST", "/api/contrats", {"reference": ""})
+T("F-20 référence vide refusée", c == 400)
+c, r, _ = req("POST", "/api/contrats", {"reference": "GSA-2026-0003 — Branche des fleuristes"})
+T("F-20 ajout d'un contrat au référentiel", c == 201
+  and "GSA-2026-0003 — Branche des fleuristes" in r["references_contrat"]
+  and len(r["references_contrat"]) == 3)
+c, r, _ = req("POST", "/api/contrats", {"reference": "gsa-2026-0003 — branche des fleuristes"})
+T("F-20 doublon (insensible à la casse) refusé", c == 400)
+c, r, _ = req("POST", "/api/preinscriptions", {"prenom":"Zoé","nom":"Petit","email":"z.petit@exemple.com",
+    "contrat_ref":"GSA-2026-0003 — Branche des fleuristes", "ndd":2, "credit":"300",
+    "pfd":{"prenom":"Louis","lien":"Père","naissance":"1941"}})
+T("F-20 pré-inscription sur le contrat ajouté", c == 201 and r["contrat_ref"].endswith("fleuristes"))
+_, stc, _ = req("GET", "/api/state")
+T("F-20 référentiel servi par l'état", len(stc["parametres"]["references_contrat"]) == 3)
 _, ems, _ = req("GET", "/api/emails")
 act = [e for e in ems["emails"] if paul and paul in e["objet"] and "Activez" in e["objet"]]
 T("F-20 lien d'activation adressé (e-mail simulé)", bool(act) and f"?dossier={paul}" in act[0]["corps"])

@@ -1275,6 +1275,7 @@ function viewProForm(){
 function gestSeed(){ return { tab:"dossiers", q:"", selId:null, showForm:false,
   form:{prenom:"",nom:"",email:"",contrat:REF0(),ndd:null,credit:"",commentaire:"",
         pfdPrenom:"",pfdLien:"Mère",pfdNaissance:"",pfdNdd:""},
+  newContrat:null,                       /* null = fermé ; "" ou texte = saisie en cours */
   selPay:{}, brdOpen:null, dernierLien:null }; }
 function REF0(){ return (STATE&&STATE.parametres&&STATE.parametres.references_contrat[0])||""; }
 let GEST = null;
@@ -1344,7 +1345,15 @@ function gFormPreinscription(){
     </div>
     <div class="row" style="margin-top:6px">
       <div class="f" style="flex:2 1 280px"><label>Référence contrat <span class="muted" style="font-weight:500">(gestion des contrats hors outil)</span></label>
-        <select class="in" data-gf="contrat">${refs.map(r=>`<option ${r===f.contrat?'selected':''}>${esc(r)}</option>`).join("")}</select></div>
+        <select class="in" data-gf="contrat">${refs.map(r=>`<option ${r===f.contrat?'selected':''}>${esc(r)}</option>`).join("")}</select>
+        ${GEST.newContrat===null
+          ?`<button class="btn ghost" data-act="g-contrat-toggle" style="margin-top:6px;padding:4px 10px;font-size:11.5px">+ Nouveau contrat au référentiel…</button>`
+          :`<div class="row" style="margin-top:6px;align-items:center">
+              <input class="in" id="g-contrat-ref" value="${esc(GEST.newContrat)}" placeholder="ex. GSA-2026-0003 — Branche des fleuristes" style="flex:1;min-width:220px;font-size:12.5px">
+              <button class="btn blue" data-act="g-contrat-ajouter" style="padding:6px 11px;font-size:12px">Ajouter</button>
+              <button class="btn ghost" data-act="g-contrat-toggle" style="padding:6px 9px;font-size:12px">✕</button>
+            </div>
+            <div class="muted" style="font-size:10.5px;margin-top:3px">Ajoute la référence à la liste de choix — la gestion du contrat lui-même reste hors outil (§1).</div>`}</div>
       <div class="f" style="flex:0 1 190px"><label>Crédit initial (€) <span class="muted" style="font-weight:500">— saisie libre</span></label>
         <input class="in" data-gf="credit" value="${esc(f.credit)}" placeholder="ex. 900" style="font-weight:800;font-size:15px"></div>
     </div>
@@ -1690,6 +1699,7 @@ document.addEventListener("input",(e)=>{
   if(e.target.dataset && e.target.dataset.gf!==undefined){ GEST.form[e.target.dataset.gf]=e.target.value; return; }
   if(e.target.id==="g-q"){ GEST.q=e.target.value; render();
     const el=$("#g-q"); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } return; }
+  if(e.target.id==="g-contrat-ref"){ GEST.newContrat=e.target.value; return; }
   if(e.target.id==="a-dv-qty"){ AID.demandeQty=e.target.value;
     const p=P_presta(AID.demandePid); const el=$("#a-dv-estim");
     if(el&&p) el.innerHTML=aidEstimDv(p); return; }
@@ -1837,6 +1847,13 @@ document.addEventListener("click", async (e)=>{
     if(act==="g-newform"){ GEST.showForm=true; render(); return; }
     if(act==="g-cancelform"){ GEST.showForm=false; render(); return; }
     if(act==="g-ndd"){ GEST.form.ndd=Number(b.dataset.n); render(); return; }
+    if(act==="g-contrat-toggle"){ GEST.newContrat=(GEST.newContrat===null?"":null); render(); return; }
+    if(act==="g-contrat-ajouter"){ const ref=($("#g-contrat-ref")&&$("#g-contrat-ref").value.trim())||"";
+      if(!ref){ toast("Saisissez la référence du contrat",true); return; }
+      const out=await api("POST","/api/contrats",{reference:ref});
+      GEST.form.contrat=ref; GEST.newContrat=null;
+      STATE.parametres.references_contrat=out.references_contrat;
+      render(); toast(`Référence ajoutée au référentiel (${out.references_contrat.length} contrats) — sélectionnée pour cette pré-inscription`); return; }
     if(act==="g-select"){ GEST.selId=(GEST.selId===id?null:id); render(); return; }
     if(act==="g-preinscrire"){
       const f=GEST.form;

@@ -24,7 +24,10 @@ Table des routes
   GET  /api/exports/<quoi>.csv                  F-28 : dossiers|mouvements|devis|remboursements|bordereaux
   GET  /api/remboursements/<réf>/justificatif   F-51 : pièce déposée (PDF/image)
   POST /api/reset                               réinitialise le jeu d'essai
-  POST /api/preinscriptions                     F-20 (PFD principal OBLIGATOIRE, crédit libre)
+  POST /api/contrats                            F-20 {reference} : ajoute une référence contrat
+                                                au référentiel (contrats gérés HORS outil)
+  POST /api/preinscriptions                     F-20 (PFD principal OBLIGATOIRE, crédit libre,
+                                                référence contrat ∈ référentiel)
   POST /api/assures/<id>/profil                 F-41 (RIB, verrou 1)
   POST /api/assures/<id>/aides                  PFD complémentaire
   POST /api/assures/<id>/aides/<pfd>/profil     F-42 (verrou 2)
@@ -206,7 +209,7 @@ def state_snapshot(s):
         "parametres": {
             "delai_facture_jours": core.DELAI_FACTURE_JOURS,                # A-3 (recyclé)
             "delai_bordereau_jours": core.DELAI_BORDEREAU_JOURS,            # A-7
-            "references_contrat": core.REFERENCES_CONTRAT,
+            "references_contrat": s.references_contrat,
             "email_gestion": core.EMAIL_GESTION,
         },
         "depts": core.DEPTS,
@@ -394,6 +397,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": True})
 
                 # — Gestionnaire : pré-inscription (F-20, RG-41) —
+                if parts == ["api", "contrats"]:
+                    refs = APP.dossiers.ajouter_contrat(body.get("reference", ""))
+                    return self._json({"references_contrat": refs}, 201)
+
                 if parts == ["api", "preinscriptions"]:
                     a = APP.dossiers.preinscrire(
                         body.get("prenom"), body.get("nom"), body.get("email"),

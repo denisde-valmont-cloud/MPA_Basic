@@ -92,10 +92,10 @@ DELAI_FACTURE_JOURS = 30              # A-3 recyclé : alerte « facture attendu
 DELAI_BORDEREAU_JOURS = 3             # A-7 : alerte « bordereau non exécuté »
 EMAIL_GESTION = "gsa@assur-aidant.com"   # §9 / F-62 : destinataire des factures pros
 PRO_LIEN_MAX_OUVERTURES = 40          # A-1a : « usage limité » — plafond de consultations
-REFERENCES_CONTRAT = [                 # référence contrat (gestion des contrats HORS outil)
-    "GSA-2026-0001 — Branche détaillants en chaussures",
-    "GSA-2026-0002 — Branche de l'édition",
-]
+REFERENCES_CONTRAT = [                 # référentiel INITIAL des références contrat —
+    "GSA-2026-0001 — Branche détaillants en chaussures",   # la gestion des contrats
+    "GSA-2026-0002 — Branche de l'édition",                # reste HORS outil (§1) ;
+]                                      # le gestionnaire enrichit la liste (F-20)
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -441,6 +441,7 @@ class Store:
         self.bordereaux: Dict[str, Bordereau] = {}      # bordereaux de virement
         self.emails: List[Email] = []                   # notifications simulées
         self.lien_base: str = ""                        # base des liens (?dossier= / ?pro=)
+        self.references_contrat: List[str] = list(REFERENCES_CONTRAT)  # référentiel (F-20)
         self._seq_dossier: Dict[int, int] = {}          # §9 : séquence par année
         self._seq_bordereau: Dict[int, int] = {}        # bordereaux : séquence annuelle
 
@@ -523,6 +524,19 @@ class MoteurDossiers:
         self.s = store
 
     # — F-20 : pré-inscription (PFD principal OBLIGATOIRE — RG-41) —
+    # — F-20 : le gestionnaire tient le référentiel des références contrat —
+    #   (il rattache les dossiers à des contrats gérés HORS outil, §1)
+    def ajouter_contrat(self, reference: str) -> List[str]:
+        ref = (reference or "").strip()
+        if not ref:
+            raise ValueError("Référence contrat vide.")
+        if len(ref) > 120:
+            raise ValueError("Référence contrat trop longue (120 caractères maximum).")
+        if any(ref.casefold() == x.casefold() for x in self.s.references_contrat):
+            raise ValueError(f"Référence déjà au référentiel : {ref}")
+        self.s.references_contrat.append(ref)
+        return self.s.references_contrat
+
     def preinscrire(self, prenom, nom, email, contrat_ref, ndd, credit_initial,
                     pfd: dict, commentaire: str = "", lien_base: str = "") -> Assure:
         try:
@@ -536,6 +550,9 @@ class MoteurDossiers:
         if not isinstance(pfd, dict) or not (pfd.get("prenom") or "").strip() \
                 or not (pfd.get("lien") or "").strip() or not str(pfd.get("naissance") or "").strip():
             raise ValueError("PFD principal obligatoire : prénom, lien et année de naissance (RG-41).")
+        if (contrat_ref or "").strip() not in self.s.references_contrat:
+            raise ValueError("Référence contrat inconnue : choisissez-la dans le référentiel "
+                             "ou ajoutez-la d'abord (F-20 — la gestion des contrats reste hors outil).")
         try:
             pfd_ndd = int(pfd.get("ndd", ndd))
         except (TypeError, ValueError):
