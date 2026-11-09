@@ -14,9 +14,11 @@ un seul Porte-Monnaie Virtuel (PMV) par dossier, trois rôles :
       le besoin exprimé et un LIEN SÉCURISÉ À USAGE LIMITÉ (?pro=<jeton>) vers
       un formulaire mono-demande : chiffrer ou décliner, puis déclarer la
       réalisation (arbitrage A-1a)
-    • Gestionnaire indemnisation  -> pré-inscrit, crédite, valide les
-      remboursements, PAIE MANUELLEMENT (virement banque hors outil puis saisie),
-      traite les alertes, bloque/débloque, commente, exporte
+    • Gestionnaire indemnisation  -> pré-inscrit, crédite, instruit les
+      demandes de remboursement, PAIE MANUELLEMENT : il marque payé (unitaire
+      ou en lot), l'outil génère un BORDEREAU DE VIREMENT par bénéficiaire
+      (BRD-AA-NNN) qu'il exécute ensuite à sa banque (hors outil) puis marque
+      exécuté ; traite les alertes, bloque/débloque, commente, exporte
 
 RÈGLES MÉTIER (source : §8 des spécifications)
 ----------------------------------------------
@@ -35,7 +37,9 @@ RG-51   L'engagement résulte EXCLUSIVEMENT de l'acceptation du devis par
         l'assuré-aidant (clic) ; automatique, sans validation du gestionnaire.
 RG-52   Aucun paiement sans service fait confirmé par l'assuré-aidant, ou
         décision motivée du gestionnaire après contact. Le paiement est
-        TOUJOURS un acte manuel du gestionnaire (virement hors outil, saisi ici).
+        TOUJOURS un acte manuel du gestionnaire : le marquage « payé » dans
+        MPA génère un bordereau de virement par bénéficiaire, exécuté ensuite
+        à la banque (hors outil) puis marqué exécuté dans MPA.
 RG-53   Montant payé au pro ≤ montant engagé ; la facture (hors outil) porte
         le n° de dossier et la référence du devis.
 RG-60–63 Orientation : taxonomie fermée ; bilan validé fait foi ; assistant
@@ -349,6 +353,24 @@ class Devis:
     commentaire_paiement: str = ""
     jeton: str = ""                   # A-1a — lien sécurisé pro, propre à la demande
     jeton_ouvertures: int = 0         # consultations (plafond PRO_LIEN_MAX_OUVERTURES)
+    bordereau_id: str = ""            # bordereau de virement du paiement
+
+
+@dataclass
+class Bordereau:
+    """Bordereau de virement généré à CHAQUE passage en « payé » (RG-52).
+    Lignes groupées par bénéficiaire : le PROFESSIONNEL pour un devis
+    (coordonnées bancaires : sur sa facture — F-62), l'ASSURÉ-AIDANT pour un
+    remboursement (IBAN du dossier). Exécuté à la banque hors outil, puis
+    marqué exécuté ici (réconciliation bancaire)."""
+    id: str                                   # BRD-AA-NNN (séquence annuelle)
+    date: str
+    lignes: List[dict] = field(default_factory=list)
+    # ligne = {type, ref, dossier, beneficiaire, iban, montant}
+    total: Decimal = Decimal("0")
+    statut: str = "à exécuter"                # à exécuter | exécuté
+    date_execution: str = ""
+    commentaire: str = ""
 
 
 @dataclass
@@ -366,6 +388,7 @@ class Remboursement:
     partiel: bool = False
     motif_refus: str = ""
     date_paiement: str = ""
+    bordereau_id: str = ""            # bordereau de virement du paiement
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -380,9 +403,11 @@ class Store:
         self.devis: Dict[str, Devis] = {}
         self.remboursements: Dict[str, Remboursement] = {}
         self.contacts: List[Contact] = []               # F-52
+        self.bordereaux: Dict[str, Bordereau] = {}      # bordereaux de virement
         self.emails: List[Email] = []                   # notifications simulées
         self.lien_base: str = ""                        # base des liens (?dossier= / ?pro=)
         self._seq_dossier: Dict[int, int] = {}          # §9 : séquence par année
+        self._seq_bordereau: Dict[int, int] = {}        # bordereaux : séquence annuelle
 
     def pmv(self, assure_id: str) -> Enveloppe:
         return self.enveloppes[assure_id]
@@ -392,6 +417,11 @@ class Store:
         a = annee or datetime.date.today().year
         self._seq_dossier[a] = self._seq_dossier.get(a, 0) + 1
         return f"GSA-{a % 100:02d}-{self._seq_dossier[a]:05d}"
+
+    def numero_bordereau(self, annee: Optional[int] = None) -> str:
+        a = annee or datetime.date.today().year
+        self._seq_bordereau[a] = self._seq_bordereau.get(a, 0) + 1
+        return f"BRD-{a % 100:02d}-{self._seq_bordereau[a]:03d}"
 
     def email(self, a: str, objet: str, corps: str):
         self.emails.append(Email(_now(), a, objet, corps))
@@ -744,7 +774,7 @@ class MoteurDevis:
         return d
 
     # — F-22 / RG-52 / RG-53 : paiement MANUEL, partiel possible, e-mail (F-24) —
-    def payer(self, devis_id, montant=None, commentaire="") -> Devis:
+    def payer(self, devis_id, montant=None, commentaire="", bordereau="") -> Devis:
         d = self.s.devis[devis_id]
         if not (d.statut == "réalisée" and d.service_fait):
             raise ValueError("Paiement impossible : service fait non confirmé (RG-52).")
@@ -761,10 +791,12 @@ class MoteurDevis:
         d.montant_paye = m
         d.date_paiement = _today()
         d.commentaire_paiement = (commentaire or "").strip()
+        d.bordereau_id = bordereau
         a = self.s.assures[d.assure_id]
         self.s.email(a.email, f"[MPA] Paiement effectué — {d.id}",
-                     f"Votre dépense « {p.nom} » a été acceptée et un virement de {eur(m)} "
-                     f"a été effectué au professionnel {self.s.pros[d.pro_id].nom} le {d.date_paiement}."
+                     f"Votre dépense « {p.nom} » a été acceptée : un virement de {eur(m)} "
+                     f"est adressé au professionnel {self.s.pros[d.pro_id].nom} ({d.date_paiement})."
+                     + (f"\nRéférence de virement : {bordereau}." if bordereau else "")
                      + (f"\nCommentaire du gestionnaire : {d.commentaire_paiement}" if d.commentaire_paiement else "")
                      + (f"\nReliquat recrédité sur votre disponible : {eur(reliquat)}." if reliquat > 0 else ""))
         return d
@@ -865,8 +897,8 @@ class MoteurRemboursement:
         r.statut = "soumise"
         return r
 
-    # — F-23 : après virement (hors outil), marquer payée —
-    def marquer_payee(self, rid, commentaire="") -> Remboursement:
+    # — F-23 : marquer payée → ligne du bordereau de virement (RG-52) —
+    def marquer_payee(self, rid, commentaire="", bordereau="") -> Remboursement:
         r = self.s.remboursements[rid]
         if r.statut != "validée":
             raise ValueError(f"Marquage impossible : demande « {r.statut} ».")
@@ -874,11 +906,75 @@ class MoteurRemboursement:
         env.payer(r.montant_valide, f"Paiement remboursement — {r.libelle}", r.id, commentaire)
         r.statut = "payée"
         r.date_paiement = _today()
+        r.bordereau_id = bordereau
         a = self.s.assures[r.assure_id]
         self.s.email(a.email, f"[MPA] Remboursement payé — {r.id}",
-                     f"Votre dépense « {r.libelle} » a été acceptée et un virement de "
-                     f"{eur(r.montant_valide)} a été effectué le {r.date_paiement}.")
+                     f"Votre dépense « {r.libelle} » a été acceptée : un virement de "
+                     f"{eur(r.montant_valide)} vous est adressé ({r.date_paiement})."
+                     + (f"\nRéférence de virement : {bordereau}." if bordereau else ""))
         return r
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Bordereaux de virement (RG-52) — générés au marquage « payé »         ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+def payer_lot(store: Store, devis_items=None, remb_refs=None, commentaire="") -> dict:
+    """Marque payés les éléments donnés et génère LE bordereau de virement.
+
+    devis_items : réfs, ou {ref, montant} pour un paiement partiel (RG-53).
+    Les lignes sont groupées par bénéficiaire : le pro (devis — coordonnées
+    bancaires sur sa facture, F-62), l'assuré-aidant (remboursement — IBAN du
+    dossier). Le bordereau n'est créé que si au moins un élément est payé."""
+    md, mr = MoteurDevis(store), MoteurRemboursement(store)
+    bid = store.numero_bordereau()
+    lignes, payes, erreurs = [], [], []
+    for item in (devis_items or []):
+        ref = item["ref"] if isinstance(item, dict) else item
+        montant = item.get("montant") if isinstance(item, dict) else None
+        try:
+            d = md.payer(ref, montant, commentaire, bordereau=bid)
+            pro = store.pros[d.pro_id]
+            lignes.append({"type": "devis", "ref": d.id, "dossier": d.assure_id,
+                           "beneficiaire": pro.nom,
+                           "iban": "Coordonnées bancaires : sur facture (F-62)",
+                           "montant": d.montant_paye})
+            payes.append(ref)
+        except Exception as e:
+            erreurs.append({"ref": ref, "erreur": str(e)})
+    for ref in (remb_refs or []):
+        try:
+            r = mr.marquer_payee(ref, commentaire, bordereau=bid)
+            a = store.assures[r.assure_id]
+            lignes.append({"type": "remboursement", "ref": r.id, "dossier": r.assure_id,
+                           "beneficiaire": f"{a.prenom} {a.nom} (assuré-aidant)",
+                           "iban": store.pmv(r.assure_id).iban or "IBAN manquant",
+                           "montant": r.montant_valide})
+            payes.append(ref)
+        except Exception as e:
+            erreurs.append({"ref": ref, "erreur": str(e)})
+    if not lignes:
+        store._seq_bordereau[datetime.date.today().year] -= 1   # numéro rendu : rien payé
+        return {"payes": [], "erreurs": erreurs, "bordereau": None}
+    lignes.sort(key=lambda l: (l["beneficiaire"], l["ref"]))     # groupé par bénéficiaire
+    b = Bordereau(bid, _today(), lignes,
+                  sum((l["montant"] for l in lignes), Decimal("0")).quantize(Decimal("0.01")),
+                  commentaire=(commentaire or "").strip())
+    store.bordereaux[b.id] = b
+    return {"payes": payes, "erreurs": erreurs, "bordereau": b}
+
+
+def executer_bordereau(store: Store, bid: str, commentaire="") -> Bordereau:
+    """Trace l'exécution bancaire (hors outil) du bordereau."""
+    b = store.bordereaux.get(bid)
+    if b is None:
+        raise KeyError(f"Bordereau introuvable : {bid}")
+    if b.statut == "exécuté":
+        raise ValueError(f"Bordereau {bid} déjà exécuté le {b.date_execution}.")
+    b.statut = "exécuté"
+    b.date_execution = _today()
+    if (commentaire or "").strip():
+        b.commentaire = (b.commentaire + " · " if b.commentaire else "") + commentaire.strip()
+    return b
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -947,8 +1043,15 @@ def exporter(store: Store, quoi: str) -> str:
         for r in store.remboursements.values():
             rows.append([r.id, r.assure_id, r.libelle, r.motif, r.montant, r.montant_valide,
                          "oui" if r.partiel else "non", r.statut, r.date_paiement, r.justificatif_nom])
+    elif quoi == "bordereaux":
+        rows = [["N_bordereau", "Date", "Statut", "Date_execution", "Beneficiaire",
+                 "Type", "Reference", "N_dossier", "IBAN", "Montant", "Total_bordereau"]]
+        for b in store.bordereaux.values():
+            for l in b.lignes:
+                rows.append([b.id, b.date, b.statut, b.date_execution, l["beneficiaire"],
+                             l["type"], l["ref"], l["dossier"], l["iban"], l["montant"], b.total])
     else:
-        raise ValueError("Export inconnu : dossiers, mouvements, devis ou remboursements.")
+        raise ValueError("Export inconnu : dossiers, mouvements, devis, remboursements ou bordereaux.")
     return _csv(rows)
 
 
@@ -1492,7 +1595,8 @@ def seed() -> Store:
     mv_.accepter(d1.id)
     mv_.declarer_realisee(d1.id, j(12))
     mv_.confirmer_service_fait(d1.id)
-    mv_.payer(d1.id, commentaire="Virement CERA du " + j(2))
+    _lot = payer_lot(s, [d1.id], [], commentaire="Virement CERA du " + j(2))
+    executer_bordereau(s, _lot["bordereau"].id)
 
     # D02 — service fait confirmé → FILE DES PAIEMENTS (F-22)
     d2 = mv_.demander(claire.id, "PR-87", "Coordonner les intervenants autour de Hugo.")

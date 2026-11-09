@@ -113,6 +113,9 @@ cap("gDossierDetail_verrou",()=>gDossierDetail(BLOCKED));
 cap("gForm",()=>{GEST.showForm=true; const r=viewGest(); GEST.showForm=false; return r;});
 cap("gPaiements",()=>{GEST.tab="paiements"; return viewGest();});
 cap("gRemb",()=>{GEST.tab="remb"; return viewGest();});
+GEST.brdOpen="BRD-26-001";
+cap("gPaiementsBrd",()=>{GEST.tab="paiements"; return viewGest();});
+GEST.brdOpen=null;
 cap("gAlertes",()=>{GEST.tab="alertes"; return viewGest();});
 cap("gEmails",()=>{GEST.tab="emails"; GEST.emails=EMS.emails; GEST.emailsLoaded=true; return viewGest();});
 cap("gExports",()=>{GEST.tab="exports"; return viewGest();});
@@ -176,10 +179,15 @@ GM={kind:null};
     "header sans rôle pro (2 espaces)": __HDROK__,
     "gest e-mails : lien ?pro= cliquable": /href="http:\/\/x\/\?pro=|\?pro=/.test(out.gEmails) && /<a href=/.test(out.gEmails),
     "gest dossier : renvoi du formulaire pro": /formulaire pro ↗/.test(out.gDossierDetail),
-    "gest file paiements RG-52": /acte manuel \(RG-52\)/.test(out.gPaiements) && /Marquer payés/.test(out.gPaiements),
+    "gest file paiements RG-52": /acte manuel \(RG-52\)/.test(out.gPaiements) && /Marquer payés \(\d+\) → bordereau/.test(out.gPaiements),
     "gest file partiel bouton": /Partiel…/.test(out.gPaiements),
+    "gest file groupée par bénéficiaire": /data-paygrp/.test(out.gPaiements) && /\(assuré-aidant\)/.test(out.gPaiements) && /sur facture \(F-62\)/.test(out.gPaiements),
+    "gest file : nom de l'assuré sur chaque ligne": new RegExp(READY.nom_complet+" — "+READY.id).test(out.gPaiements),
+    "gest bordereaux : section + seed exécuté": /BORDEREAUX DE VIREMENT/.test(out.gPaiements) && /BRD-26-001/.test(out.gPaiements) && /Exécuté le/.test(out.gPaiements) && /bordereaux\.csv/.test(out.gPaiements),
+    "gest bordereau détail : IBAN + total": /Total du bordereau/.test(out.gPaiementsBrd) && /sur facture \(F-62\)/.test(out.gPaiementsBrd),
     "gest remb valider RG-44": /partiel automatique — RG-44/i.test(out.gRemb),
-    "gest remb payer lot": /Marquer payées/.test(out.gRemb),
+    "gest remb : onglet instruction, validées → paiements": /Demandes de remboursement/.test(out.gRemb) && /→ Paiements à effectuer/.test(out.gRemb) && !/Marquer payées/.test(out.gRemb),
+    "gest remb : groupée par dossier avec PMV (solde/engagé/disponible)": new RegExp(READY.nom_complet).test(out.gRemb) && /Solde/.test(out.gRemb) && /Engagé/.test(out.gRemb) && /Disponible/.test(out.gRemb),
     "gest justificatif lien": /justificatif" target="_blank"|justificatif"/.test(out.gRemb),
     "gest alertes délai+tâche": /Délai expiré/.test(out.gAlertes) && /tâche quotidienne \(F-70\)/.test(out.gAlertes),
     "gest alertes 3 actions F-25": /Confirmer pour le compte/.test(out.gAlertes) && /Payer partiellement/.test(out.gAlertes) && /Annuler \(désengagement intégral\)/.test(out.gAlertes),

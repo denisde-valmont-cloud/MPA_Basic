@@ -1242,7 +1242,7 @@ function viewProForm(){
 function gestSeed(){ return { tab:"dossiers", q:"", selId:null, showForm:false,
   form:{prenom:"",nom:"",email:"",contrat:REF0(),ndd:null,credit:"",commentaire:"",
         pfdPrenom:"",pfdLien:"Mère",pfdNaissance:"",pfdNdd:""},
-  selPay:{}, selRemb:{}, dernierLien:null }; }
+  selPay:{}, brdOpen:null, dernierLien:null }; }
 function REF0(){ return (STATE&&STATE.parametres&&STATE.parametres.references_contrat[0])||""; }
 let GEST = null;
 let GM = { kind:null, ref:null, aid:null };     // modals gestionnaire
@@ -1256,7 +1256,7 @@ function viewGest(){
                  +(STATE.remboursements||[]).filter(r=>r.statut==="validée").length;
   const rembN=(STATE.remboursements||[]).filter(r=>r.statut==="soumise"||r.statut==="piece_demandee").length;
   const tabs=`<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-    ${[["dossiers","Dossiers",0],["paiements","Paiements à effectuer",filePaieN],["remb","Remboursements",rembN],["alertes","Alertes",alertesN],["emails","E-mails"],["exports","Exports"]].map(([id,lab,n])=>{
+    ${[["dossiers","Dossiers",0],["paiements","Paiements à effectuer",filePaieN],["remb","Demandes de remboursement",rembN],["alertes","Alertes",alertesN],["emails","E-mails"],["exports","Exports"]].map(([id,lab,n])=>{
       const on=GEST.tab===id;
       return `<button class="btn ${on?'blue':'ghost'}" data-act="g-tab" data-tab="${id}">${lab}${n>0?`<span class="nbadge">${n}</span>`:""}</button>`;
     }).join("")}</div>`;
@@ -1394,41 +1394,94 @@ function gPaiements(){
   const rembs=(STATE.remboursements||[]).filter(r=>r.statut==="validée");
   const nSel=Object.values(GEST.selPay).filter(Boolean).length;
   const rappel=`<div class="card" style="background:var(--blueLt);border-color:var(--blue);font-size:12.5px;line-height:1.5">
-    <b>Le paiement est un acte manuel (RG-52).</b> Effectuez les virements depuis la banque (hors outil), puis cochez les lignes payées et
-    « Marquer payés » : le PMV passe d'engagé à payé et l'assuré-aidant est notifié par e-mail (F-24). Paiement partiel possible ligne à ligne
-    (montant ≤ engagé — RG-53 ; le reliquat retourne au disponible).</div>`;
-  if(!devis.length&&!rembs.length) return rappel+`<div class="card empty">File vide : aucun service fait confirmé ni remboursement validé en attente de paiement.</div>`;
-  const ligne=(ref,benef,dossier,lib,montant,extra)=>`<tr>
-    <td><input type="checkbox" data-pay="${esc(ref)}" ${GEST.selPay[ref]?'checked':''}></td>
-    <td style="font-weight:700;font-size:12px;white-space:nowrap">${esc(ref)}</td>
-    <td style="font-size:12.5px">${esc(benef)}<div class="muted" style="font-size:10.5px">${esc(lib)}</div></td>
-    <td style="font-size:11.5px;white-space:nowrap">${esc(dossier)}</td>
-    <td class="right" style="font-weight:800;white-space:nowrap">${eur(montant)}</td>
-    <td class="right">${extra||""}</td></tr>`;
-  const rowsD=devis.map(d=>{const p=P_presta(d.prestation_id);
-    return ligne(d.id, A_proNom(d.pro_id)+" (pro)", d.assure_id, p.nom||"", d.total,
-      `<button class="btn ghost" data-act="g-partiel-open" data-id="${esc(d.id)}" style="padding:5px 10px;font-size:11.5px">Partiel…</button>`);}).join("");
-  const rowsR=rembs.map(r=>ligne(r.id, gAssure(r.assure_id).nom_complet+" (assuré-aidant)", r.assure_id, r.libelle, r.montant_valide,"")).join("");
-  return rappel+`<div class="card" style="padding:0;overflow:hidden">
+    <b>Le paiement est un acte manuel (RG-52), en deux temps.</b> ① Cochez les lignes et « Marquer payés » :
+    le PMV passe d'engagé à payé, l'assuré-aidant est notifié (F-24) et MPA <b>génère le bordereau de
+    virement, groupé par bénéficiaire</b>. ② Exécutez le bordereau à votre banque (hors outil), puis
+    marquez-le exécuté ci-dessous. Paiement partiel possible ligne à ligne (montant ≤ engagé — RG-53 ;
+    le reliquat retourne au disponible).</div>`;
+  /* ── groupes par bénéficiaire : les pros (devis), puis les assurés (remboursements) ── */
+  const grps=[];
+  devis.forEach(d=>{const k="pro:"+d.pro_id;let g=grps.find(x=>x.k===k);
+    if(!g){g={k,nom:A_proNom(d.pro_id),type:"Professionnel — coordonnées bancaires sur facture (F-62)",lignes:[]};grps.push(g);}
+    const p=P_presta(d.prestation_id);
+    g.lignes.push({ref:d.id,dossier:d.assure_id,assure:gAssure(d.assure_id).nom_complet,lib:p.nom||"",montant:Number(d.total),partiel:true});});
+  rembs.forEach(r=>{const k="aid:"+r.assure_id;let g=grps.find(x=>x.k===k);
+    const a=gAssure(r.assure_id);
+    if(!g){g={k,nom:a.nom_complet+" (assuré-aidant)",type:"Remboursement — IBAN du dossier "+r.assure_id,lignes:[]};grps.push(g);}
+    g.lignes.push({ref:r.id,dossier:r.assure_id,assure:a.nom_complet,lib:r.libelle+(r.partiel?" (validation partielle)":""),montant:Number(r.montant_valide),partiel:false});});
+  const file=!grps.length?`<div class="card empty">File vide : aucun service fait confirmé ni remboursement validé en attente de paiement.</div>`
+  :`<div class="card" style="padding:0;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px">
       <b style="font-size:14px">File des paiements à effectuer <span class="muted" style="font-weight:500;font-size:12px">(${devis.length} prestation(s), ${rembs.length} remboursement(s))</span></b>
-      <button class="btn blue" data-act="g-payer-lot" ${nSel?'':'disabled'}>Marquer payés (${nSel})</button></div>
-    <div style="overflow-x:auto"><table>
-      <thead><tr><th></th><th>Référence</th><th>Bénéficiaire du virement</th><th>Dossier</th><th class="right">Montant</th><th></th></tr></thead>
-      <tbody>${rowsD}${rowsR}</tbody></table></div></div>`;
+      <button class="btn blue" data-act="g-payer-lot" ${nSel?'':'disabled'}>Marquer payés (${nSel}) → bordereau</button></div>
+    ${grps.map(g=>{
+      const refs=g.lignes.map(l=>l.ref), tout=refs.every(r=>GEST.selPay[r]);
+      const sousTotal=g.lignes.reduce((t,l)=>t+l.montant,0);
+      return `<div style="border-bottom:1px solid var(--line)">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--paper);flex-wrap:wrap">
+          <input type="checkbox" data-paygrp="${esc(refs.join(","))}" ${tout?'checked':''} title="Tout le bénéficiaire">
+          <div style="flex:1;min-width:200px"><b style="font-size:13px">${esc(g.nom)}</b>
+            <div class="muted" style="font-size:10.5px">${esc(g.type)}</div></div>
+          <span style="font-weight:800;white-space:nowrap">${eur(sousTotal)}</span></div>
+        ${g.lignes.map(l=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 16px 8px 34px;font-size:12.5px;flex-wrap:wrap">
+          <input type="checkbox" data-pay="${esc(l.ref)}" ${GEST.selPay[l.ref]?'checked':''}>
+          <b style="font-size:11.5px;white-space:nowrap">${esc(l.ref)}</b>
+          <span style="flex:1;min-width:160px">${esc(l.lib)}<span class="muted" style="font-size:10.5px"> · ${esc(l.assure)} — ${esc(l.dossier)}</span></span>
+          <span style="font-weight:800;white-space:nowrap">${eur(l.montant)}</span>
+          ${l.partiel?`<button class="btn ghost" data-act="g-partiel-open" data-id="${esc(l.ref)}" style="padding:4px 9px;font-size:11px">Partiel…</button>`:`<span style="width:58px"></span>`}
+        </div>`).join("")}</div>`;}).join("")}</div>`;
+  /* ── bordereaux de virement (RG-52) ── */
+  const brds=STATE.bordereaux||[];
+  const bloc=b=>{
+    const open=GEST.brdOpen===b.id;
+    const benefs=[...new Set(b.lignes.map(l=>l.beneficiaire))];
+    const aExec=b.statut==="à exécuter";
+    let detail="";
+    if(open){
+      detail=benefs.map(nom=>{
+        const ls=b.lignes.filter(l=>l.beneficiaire===nom);
+        const st=ls.reduce((t,l)=>t+Number(l.montant),0);
+        return `<div style="margin-top:9px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff">
+          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b style="font-size:12.5px">${esc(nom)}</b><b>${eur(st)}</b></div>
+          <div class="muted" style="font-size:11px;margin:2px 0 6px">${esc(ls[0].iban)}</div>
+          ${ls.map(l=>`<div style="display:flex;gap:8px;font-size:11.5px;padding:2px 0"><span style="font-weight:700">${esc(l.ref)}</span><span class="muted" style="flex:1">dossier ${esc(l.dossier)}</span><span>${eur(l.montant)}</span></div>`).join("")}
+        </div>`;}).join("")
+      +`<div style="display:flex;justify-content:flex-end;margin-top:8px;font-size:13px"><b>Total du bordereau : ${eur(b.total)}</b></div>`;
+    }
+    return `<div class="card" style="margin-bottom:8px;${aExec?'border-color:var(--goldDk)':''}">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <b style="font-size:13px">${esc(b.id)}</b><span class="muted" style="font-size:11.5px">du ${dateFR(b.date)}</span>
+        <span style="flex:1;font-size:11.5px" class="muted">${benefs.length} bénéficiaire(s) · ${b.lignes.length} ligne(s)</span>
+        <b style="white-space:nowrap">${eur(b.total)}</b>
+        <span class="chip" style="${aExec?'background:var(--goldLt);color:var(--goldDk)':'background:var(--tealLt);color:var(--teal)'}">${aExec?'À exécuter à la banque':'Exécuté le '+dateFR(b.date_execution)}</span>
+        <button class="btn ghost" data-act="g-brd-toggle" data-id="${esc(b.id)}" style="padding:4px 10px;font-size:11.5px">${open?'Replier':'Détail'}</button>
+        ${aExec?`<button class="btn teal" data-act="g-brd-executer" data-id="${esc(b.id)}" style="padding:4px 10px;font-size:11.5px">Marquer exécuté</button>`:""}
+      </div>${detail}</div>`;};
+  const blocBrds=`<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted)">BORDEREAUX DE VIREMENT — à exécuter à la banque, puis à marquer exécutés</div>
+      <a class="btn ghost" style="padding:5px 10px;font-size:11.5px;text-decoration:none" href="${API}/api/exports/bordereaux.csv" download>⬇ Export CSV</a></div>`
+    +(brds.length?brds.map(bloc).join(""):`<div class="card empty" style="padding:14px">Aucun bordereau — généré automatiquement au marquage « payé ».</div>`);
+  return rappel+file+blocBrds;
 }
 
-/* ───── Remboursements (F-23) : instruire, puis marquer payées en lot ───── */
+/* ───── Demandes de remboursement (F-23) : INSTRUCTION, groupée par dossier.
+   Une demande validée engage le PMV (RG-44) et bascule dans « Paiements à
+   effectuer » ; payées / refusées : historique replié. ───── */
 function gRemboursements(){
   const aTraiter=(STATE.remboursements||[]).filter(r=>r.statut==="soumise"||r.statut==="piece_demandee");
   const validees=(STATE.remboursements||[]).filter(r=>r.statut==="validée");
   const closes=(STATE.remboursements||[]).filter(r=>["payée","refusée"].includes(r.statut));
-  const nSel=Object.values(GEST.selRemb).filter(Boolean).length;
-  const carte=r=>{const a=gAssure(r.assure_id);
-    return `<div class="card" style="margin-bottom:10px">
+  const rappel=`<div class="card" style="background:var(--blueLt);border-color:var(--blue);font-size:12.5px;line-height:1.5">
+    <b>Instruction des demandes (F-23).</b> Valider engage le montant sur le PMV — au plus à hauteur du
+    disponible (partiel automatique, RG-44) — et envoie la demande dans <b>« Paiements à effectuer »</b>.
+    Refus et demande de pièce sont notifiés à l'assuré-aidant (F-24).</div>`;
+  const lienValidees=validees.length?`<div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--tealLt);border-color:var(--teal)">
+    <span style="font-size:12.5px;flex:1"><b>${validees.length} demande(s) validée(s)</b> en attente de virement (${eur(validees.reduce((t,r)=>t+Number(r.montant_valide),0))}).</span>
+    <button class="btn teal" data-act="g-tab" data-tab="paiements" style="padding:6px 12px;font-size:12px">→ Paiements à effectuer</button></div>`:"";
+  const carte=r=>`<div style="border-top:1px solid var(--line);padding:11px 14px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
         <div><b style="font-size:13.5px">${esc(r.libelle)}</b> <span class="muted" style="font-size:11px">· ${esc(r.id)}</span>
-          <div class="muted" style="font-size:12px">${esc(a.nom_complet)} · ${esc(r.motif)} · demandé <b>${eur(r.montant)}</b> · disponible du PMV : ${eur(a.pmv.disponible)}</div></div>
+          <div class="muted" style="font-size:12px">${esc(r.motif)} · demandé <b>${eur(r.montant)}</b></div></div>
         <span class="chip" style="background:${r.statut==='piece_demandee'?'var(--goldLt)':'var(--paper)'};color:${r.statut==='piece_demandee'?'var(--goldDk)':'var(--ink)'}">${r.statut==='piece_demandee'?'Pièce demandée':'À examiner'}</span></div>
       <div style="font-size:12px;margin-top:6px">Justificatif : ${r.a_justificatif
         ?`<a href="${API}/api/remboursements/${encodeURIComponent(r.id)}/justificatif" target="_blank" style="color:var(--blue);font-weight:700">${esc(r.justificatif_nom)} ↗</a>`
@@ -1437,24 +1490,29 @@ function gRemboursements(){
         <button class="btn teal" data-act="g-remb-valider" data-id="${esc(r.id)}">Valider (partiel automatique — RG-44)</button>
         <button class="btn ghost" data-act="g-remb-piece" data-id="${esc(r.id)}">Demander une pièce</button>
         <button class="btn bad" data-act="g-remb-refuser-open" data-id="${esc(r.id)}">Refuser…</button></div>`
-      :`<div class="muted" style="font-size:12px;margin-top:6px">En attente du nouveau dépôt par l'assuré-aidant (retour à « soumise »).</div>`}</div>`;};
-  const blocTraiter=aTraiter.length?`<h2 style="margin:4px 0 10px">À instruire</h2>${aTraiter.map(carte).join("")}`
+      :`<div class="muted" style="font-size:12px;margin-top:6px">En attente du nouveau dépôt par l'assuré-aidant (retour à « soumise »).</div>`}</div>`;
+  /* ── regroupement par dossier, avec les chiffres du PMV en tête de groupe ── */
+  const parDossier={};
+  aTraiter.forEach(r=>{(parDossier[r.assure_id]=parDossier[r.assure_id]||[]).push(r);});
+  const groupe=aid=>{
+    const a=gAssure(aid), e=a.pmv, rs=parDossier[aid];
+    const chip=(lab,val,col)=>`<span style="font-size:11px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:3px 8px;white-space:nowrap">${lab} <b style="color:${col||'var(--ink)'}">${eur(val)}</b></span>`;
+    return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--paper);flex-wrap:wrap">
+        <div style="flex:1;min-width:200px"><b style="font-size:13.5px">${esc(a.nom_complet)}</b>
+          <span class="muted" style="font-size:11.5px">· ${esc(aid)}</span>
+          ${a.etat_dossier==="Bloqué"?`<span class="chip" style="background:#FBEDEC;color:var(--bad);margin-left:6px">PMV bloqué</span>`:""}
+          <div class="muted" style="font-size:10.5px">${rs.length} demande(s) à instruire</div></div>
+        ${chip("Solde",e.solde)}${chip("Engagé",e.engage,"var(--purple)")}${chip("Disponible",e.disponible,"var(--teal)")}</div>
+      ${rs.map(carte).join("")}</div>`;};
+  const blocTraiter=aTraiter.length
+    ?`<h2 style="margin:4px 0 10px">À instruire</h2>${Object.keys(parDossier).sort().map(groupe).join("")}`
     :`<div class="card empty" style="padding:16px">Aucune demande à instruire.</div>`;
-  const blocValidees=validees.length?`<div class="card" style="padding:0;overflow:hidden;margin-top:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px">
-        <b style="font-size:14px">Validées — virements à saisir <span class="muted" style="font-weight:500;font-size:12px">(engagées sur le PMV)</span></b>
-        <button class="btn blue" data-act="g-remb-payer-lot" ${nSel?'':'disabled'}>Marquer payées (${nSel})</button></div>
-      <div style="overflow-x:auto"><table><thead><tr><th></th><th>Référence</th><th>Assuré-aidant</th><th>Libellé</th><th class="right">Montant validé</th></tr></thead><tbody>
-      ${validees.map(r=>`<tr><td><input type="checkbox" data-remb="${esc(r.id)}" ${GEST.selRemb[r.id]?'checked':''}></td>
-        <td style="font-weight:700;font-size:12px">${esc(r.id)}</td><td>${esc(gAssure(r.assure_id).nom_complet)}</td>
-        <td style="font-size:12.5px">${esc(r.libelle)}${r.partiel?' <span class="chip" style="background:var(--goldLt);color:var(--goldDk)">partiel</span>':''}</td>
-        <td class="right" style="font-weight:800">${eur(r.montant_valide)}</td></tr>`).join("")}
-      </tbody></table></div></div>`:"";
-  const blocCloses=closes.length?`<div style="margin-top:16px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">HISTORIQUE</div>
-    <div style="display:grid;gap:5px">${closes.slice().reverse().map(r=>`<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper)">
-      <b>${esc(r.id)}</b><span style="flex:1">${esc(r.libelle)}</span><span>${eur(r.montant_valide!=null?r.montant_valide:r.montant)}</span>
-      <span class="chip" style="background:var(--line)">${esc(r.statut)}${r.date_paiement?' le '+dateFR(r.date_paiement):''}</span></div>`).join("")}</div></div>`:"";
-  return blocTraiter+blocValidees+blocCloses;
+  const blocCloses=closes.length?`<details style="margin-top:16px"><summary style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer">DEMANDES TRAITÉES (${closes.length})</summary>
+    <div style="display:grid;gap:5px;margin-top:8px">${closes.slice().reverse().map(r=>`<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper);flex-wrap:wrap">
+      <b>${esc(r.id)}</b><span class="muted" style="font-size:11px">${esc(gAssure(r.assure_id).nom_complet)}</span><span style="flex:1">${esc(r.libelle)}</span><span>${eur(r.montant_valide!=null?r.montant_valide:r.montant)}</span>
+      <span class="chip" style="background:var(--line)">${esc(r.statut)}${r.date_paiement?' le '+dateFR(r.date_paiement):''}${r.bordereau_id?' · '+esc(r.bordereau_id):''}</span></div>`).join("")}</div></details>`:"";
+  return rappel+lienValidees+blocTraiter+blocCloses;
 }
 
 /* ───── Alertes (F-25, F-70) ───── */
@@ -1558,7 +1616,8 @@ document.addEventListener("change", async (e)=>{
     rd.readAsDataURL(f); return;
   }
   if(e.target.dataset && e.target.dataset.pay!==undefined){ GEST.selPay[e.target.dataset.pay]=e.target.checked; render(); return; }
-  if(e.target.dataset && e.target.dataset.remb!==undefined){ GEST.selRemb[e.target.dataset.remb]=e.target.checked; render(); return; }
+  if(e.target.dataset && e.target.dataset.paygrp!==undefined){
+    e.target.dataset.paygrp.split(",").forEach(r=>{ GEST.selPay[r]=e.target.checked; }); render(); return; }
   if(e.target.dataset && e.target.dataset.gf!==undefined){ GEST.form[e.target.dataset.gf]=e.target.value; return; }
 });
 
@@ -1753,23 +1812,22 @@ document.addEventListener("click", async (e)=>{
       if(!m||isNaN(parseFloat(m.replace(",",".")))){ toast("Montant invalide",true); return; }
       if(GM.conf){ if(!comm){ toast("Motif obligatoire (F-25)",true); return; }
         await api("POST",`/api/devis/${GM.ref}/service-fait`,{par:"gestionnaire",motif:comm}); }
-      await api("POST",`/api/devis/${GM.ref}/payer`,{montant:m.replace(",","."),commentaire:comm});
-      GM={kind:null}; MODAL=""; await refresh(); toast("Paiement partiel saisi — reliquat recrédité, assuré-aidant notifié (F-24)"); return; }
+      const pr=await api("POST",`/api/devis/${GM.ref}/payer`,{montant:m.replace(",","."),commentaire:comm});
+      GM={kind:null}; MODAL=""; if(pr.bordereau){ GEST.brdOpen=pr.bordereau.id; } await refresh();
+      toast(`Paiement partiel saisi — bordereau ${pr.bordereau?pr.bordereau.id:""} à exécuter à la banque ; reliquat recrédité, assuré-aidant notifié (F-24)`); return; }
     if(act==="g-payer-lot"){
       const devis=Object.keys(GEST.selPay).filter(k=>GEST.selPay[k]&&k.includes("-D"));
       const rembs=Object.keys(GEST.selPay).filter(k=>GEST.selPay[k]&&k.includes("-R"));
-      const r=await api("POST","/api/paiements",{devis,remboursements:rembs,commentaire:"Virement CERA du jour"});
-      GEST.selPay={};
+      const r=await api("POST","/api/paiements",{devis,remboursements:rembs,commentaire:"Lot du "+new Date().toLocaleDateString("fr-FR")});
+      GEST.selPay={}; if(r.bordereau){ GEST.brdOpen=r.bordereau.id; }
       await refresh();
-      toast(`${r.payes.length} paiement(s) saisi(s)`+(r.erreurs.length?` · ${r.erreurs.length} erreur(s) : ${r.erreurs[0].erreur}`:"")+" — e-mails adressés (F-24)", r.erreurs.length>0); return; }
+      toast(r.bordereau?`${r.payes.length} paiement(s) saisi(s) — bordereau ${r.bordereau.id} généré, à exécuter à la banque`+(r.erreurs.length?` · ${r.erreurs.length} erreur(s)`:""):`Aucun paiement saisi : ${r.erreurs.length?r.erreurs[0].erreur:"sélection vide"}`, !r.bordereau||r.erreurs.length>0); return; }
+    if(act==="g-brd-toggle"){ GEST.brdOpen=(GEST.brdOpen===id?null:id); render(); return; }
+    if(act==="g-brd-executer"){ const bx=await api("POST",`/api/bordereaux/${id}/executer`,{});
+      await refresh(); toast(`Bordereau ${bx.id} marqué exécuté (${dateFR(bx.date_execution)}) — virements passés en banque`); return; }
     if(act==="g-remb-valider"){ const r=await api("POST",`/api/remboursements/${id}/valider`);
-      await refresh(); toast(`Validé ${eur(r.montant_valide)}${r.partiel?" (partiel — à hauteur du disponible, RG-44)":""} — montant engagé, assuré-aidant notifié`); return; }
+      await refresh(); toast(`Validé ${eur(r.montant_valide)}${r.partiel?" (partiel — à hauteur du disponible, RG-44)":""} — engagé sur le PMV, basculé dans « Paiements à effectuer »`); return; }
     if(act==="g-remb-piece"){ await api("POST",`/api/remboursements/${id}/piece`); await refresh(); toast("Pièce complémentaire demandée"); return; }
-    if(act==="g-remb-payer-lot"){
-      const rembs=Object.keys(GEST.selRemb).filter(k=>GEST.selRemb[k]);
-      const r=await api("POST","/api/paiements",{devis:[],remboursements:rembs,commentaire:"Virement CERA du jour"});
-      GEST.selRemb={};
-      await refresh(); toast(`${r.payes.length} remboursement(s) marqué(s) payé(s) — e-mails adressés (F-24)`); return; }
     if(act==="g-tache"){ const t=await api("POST","/api/tache-quotidienne");
       await refresh(); toast(t.message); return; }
   }catch(err){

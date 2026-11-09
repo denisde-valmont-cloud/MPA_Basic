@@ -179,6 +179,8 @@ T("F-22 paiement MANUEL partiel : engagé→payé, reliquat→disponible",
   and fin["disponible"] - mid["disponible"] == Decimal("28.00") and eq_ok(paul))
 _, emp, _ = req("GET", "/api/emails")
 T("F-24 e-mail « virement effectué » à l'assuré-aidant", any("Paiement effectué" in e["objet"] and did in e["objet"] for e in emp["emails"]))
+T("RG-52 l'e-mail F-24 porte la référence du bordereau",
+  any(did in e["objet"] and "Référence de virement : BRD-" in e["corps"] for e in emp["emails"]))
 
 # ── F-25 annulation → désengagement intégral ─────────────────────────────
 _, d2, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-86", "message": ""})
@@ -225,6 +227,30 @@ fileP = [d["id"] for d in st["devis"] if d["statut"] == "réalisée" and d["serv
 fileR = [x["id"] for x in st["remboursements"] if x["statut"] == "validée"]
 c, lot, _ = req("POST", "/api/paiements", {"devis": fileP, "remboursements": fileR, "commentaire": "Virements CERA"})
 T("F-22/23 marquage en lot", c == 200 and len(lot["payes"]) == len(fileP) + len(fileR) and not lot["erreurs"] and eq_ok(cla["id"]))
+
+# ── RG-52 : bordereau de virement généré au marquage, exécuté ensuite ────
+b = lot["bordereau"]
+T("RG-52 lot → UN bordereau (BRD-AA-NNN, lignes, total)",
+  b is not None and b["id"].startswith("BRD-") and len(b["lignes"]) == len(fileP) + len(fileR)
+  and Decimal(b["total"]) == sum(Decimal(l["montant"]) for l in b["lignes"]))
+T("RG-52 lignes par bénéficiaire : pro → facture (F-62), assuré → IBAN du dossier",
+  all(("facture" in l["iban"]) == (l["type"] == "devis") for l in b["lignes"])
+  and all(l["iban"].startswith("FR") for l in b["lignes"] if l["type"] == "remboursement")
+  and [l["beneficiaire"] for l in b["lignes"]] == sorted(l["beneficiaire"] for l in b["lignes"]))
+_, stb, _ = req("GET", "/api/state")
+T("RG-52 traçabilité : devis et remboursements portent le n° de bordereau",
+  all(next(x for x in stb["devis"] if x["id"] == ref)["bordereau_id"] == b["id"] for ref in fileP)
+  and all(next(x for x in stb["remboursements"] if x["id"] == ref)["bordereau_id"] == b["id"] for ref in fileR))
+c, bx, _ = req("POST", f"/api/bordereaux/{b['id']}/executer", {"commentaire": "Passé en banque"})
+T("RG-52 bordereau marqué exécuté (date tracée)", c == 200 and bx["statut"] == "exécuté" and bx["date_execution"])
+c, r, _ = req("POST", f"/api/bordereaux/{b['id']}/executer", {})
+T("RG-52 double exécution refusée", c == 400)
+T("RG-52 bordereau du jeu d'essai déjà exécuté (BRD-26-001)",
+  any(x["id"] == "BRD-26-001" and x["statut"] == "exécuté" for x in stb["bordereaux"]))
+c, lot0, _ = req("POST", "/api/paiements", {"devis": fileP, "remboursements": [], "commentaire": ""})
+T("RG-52 lot sans élément payable : AUCUN bordereau créé", c == 200 and lot0["bordereau"] is None and lot0["erreurs"])
+c, raw, ct = req("GET", "/api/exports/bordereaux.csv")
+T("F-28 export bordereaux.csv", c == 200 and "N_bordereau" in raw and "BRD-26-001" in raw)
 
 # ── F-21 : crédit manuel — correction tracée (recharge aussi le dossier) ─
 avant = pmv(paul)

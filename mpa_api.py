@@ -21,7 +21,7 @@ Table des routes
   GET  /api/assures/<n° dossier>                un dossier + journal PMV
   GET  /api/alertes                             F-25/F-70 : délais expirés, contestations
   GET  /api/emails                              notifications e-mail SIMULÉES
-  GET  /api/exports/<quoi>.csv                  F-28 : dossiers|mouvements|devis|remboursements
+  GET  /api/exports/<quoi>.csv                  F-28 : dossiers|mouvements|devis|remboursements|bordereaux
   GET  /api/remboursements/<réf>/justificatif   F-51 : pièce déposée (PDF/image)
   POST /api/reset                               réinitialise le jeu d'essai
   POST /api/preinscriptions                     F-20 (PFD principal OBLIGATOIRE, crédit libre)
@@ -46,13 +46,15 @@ Table des routes
   POST /api/devis/<réf>/contester               F-49 {motif}
   POST /api/devis/<réf>/payer                   F-22 {montant?, commentaire?} — MANUEL (RG-52/53)
   POST /api/devis/<réf>/annuler                 F-25 {motif} — désengagement intégral
-  POST /api/paiements                           F-22/F-23 marquage EN LOT {devis:[réfs], remboursements:[réfs], commentaire?}
+  POST /api/paiements                           F-22/F-23 marquage EN LOT → UN bordereau par
+                                                bénéficiaire {devis:[réfs], remboursements:[réfs], commentaire?}
   POST /api/remboursements                      F-51 {assure_id, libelle, motif, montant, justificatif_nom, justificatif_data?}
   POST /api/remboursements/<réf>/valider        F-23 (partiel auto RG-44 ; engage le PMV)
   POST /api/remboursements/<réf>/refuser        F-23 {motif}
   POST /api/remboursements/<réf>/piece          F-23
   POST /api/remboursements/<réf>/redeposer      §7.2 {justificatif_nom, justificatif_data?}
-  POST /api/remboursements/<réf>/payer          F-23 (après virement, marquer payée)
+  POST /api/remboursements/<réf>/payer          F-23 marquer payée → bordereau (RG-52)
+  POST /api/bordereaux/<id>/executer            RG-52 : virement exécuté à la banque {commentaire?}
   POST /api/tache-quotidienne                   F-70 (déclenchement manuel en maquette)
   POST /api/anticiper2                          F-45 proxy LLM (taxonomie fermée)
   POST /api/analyse/generer                     F-44 bilan situationnel (~40 lignes)
@@ -211,6 +213,7 @@ def state_snapshot(s):
         "prestations": [jsonable(p) for p in s.prestations.values()],
         "devis": [jsonable(d) for d in s.devis.values()],
         "remboursements": [remb_view(r) for r in s.remboursements.values()],
+        "bordereaux": [jsonable(b) for b in reversed(list(s.bordereaux.values()))],
         "alertes": core.alertes(s),
         "contacts": [jsonable(c) for c in s.contacts],
         "nb_emails": len(s.emails),
@@ -487,8 +490,14 @@ class Handler(BaseHTTPRequestHandler):
                     elif action == "contester":
                         d = APP.devis.contester(did, body.get("motif", ""))
                     elif action == "payer":
-                        d = APP.devis.payer(did, body.get("montant"),
-                                            body.get("commentaire", ""))
+                        out = core.payer_lot(
+                            s, [{"ref": did, "montant": body.get("montant")}], [],
+                            body.get("commentaire", ""))
+                        if out["erreurs"]:
+                            raise ValueError(out["erreurs"][0]["erreur"])
+                        d = s.devis[did]
+                        return self._json({**jsonable(d),
+                                           "bordereau": jsonable(out["bordereau"])})
                     elif action == "annuler":
                         d = APP.devis.annuler(did, body.get("motif", ""))
                     else:
@@ -497,20 +506,15 @@ class Handler(BaseHTTPRequestHandler):
 
                 # — F-22 / F-23 : marquage de PLUSIEURS paiements en une fois —
                 if parts == ["api", "paiements"]:
-                    done, errs = [], []
-                    for did in body.get("devis", []) or []:
-                        try:
-                            APP.devis.payer(did, None, body.get("commentaire", ""))
-                            done.append(did)
-                        except Exception as e:
-                            errs.append({"ref": did, "erreur": str(e)})
-                    for rid in body.get("remboursements", []) or []:
-                        try:
-                            APP.remb.marquer_payee(rid, body.get("commentaire", ""))
-                            done.append(rid)
-                        except Exception as e:
-                            errs.append({"ref": rid, "erreur": str(e)})
-                    return self._json({"payes": done, "erreurs": errs})
+                    out = core.payer_lot(s, body.get("devis", []) or [],
+                                         body.get("remboursements", []) or [],
+                                         body.get("commentaire", ""))
+                    return self._json(jsonable(out))
+
+                # — RG-52 : exécution bancaire du bordereau (traçabilité) —
+                if len(parts) == 4 and parts[:2] == ["api", "bordereaux"] and parts[3] == "executer":
+                    b = core.executer_bordereau(s, parts[2], body.get("commentaire", ""))
+                    return self._json(jsonable(b))
 
                 # — Remboursements (§7.2) —
                 if parts == ["api", "remboursements"]:
@@ -535,7 +539,12 @@ class Handler(BaseHTTPRequestHandler):
                         r = APP.remb.redeposer(rid, body.get("justificatif_nom", ""),
                                                body.get("justificatif_data", ""))
                     elif action == "payer":
-                        r = APP.remb.marquer_payee(rid, body.get("commentaire", ""))
+                        out = core.payer_lot(s, [], [rid], body.get("commentaire", ""))
+                        if out["erreurs"]:
+                            raise ValueError(out["erreurs"][0]["erreur"])
+                        r = s.remboursements[rid]
+                        return self._json({**remb_view(r),
+                                           "bordereau": jsonable(out["bordereau"])})
                     else:
                         return self._err("Action remboursement inconnue", 404)
                     return self._json(remb_view(r))
