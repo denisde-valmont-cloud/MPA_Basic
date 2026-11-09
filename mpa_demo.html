@@ -1064,6 +1064,9 @@ function aidPrestations(a){
 /* — Mon PMV & remboursements (F-43, F-51) — */
 function aidPmvRemb(a){
   const env=a.pmv;
+  const nr=a.non_renouvellement;
+  const bandeauEch=nr?`<div class="card" style="background:#FBEDEC;border-color:var(--bad)"><b style="color:var(--bad)">Votre garantie n'a pas été renouvelée</b><div class="muted" style="font-size:12.5px;margin-top:4px">Votre garantie est arrivée à échéance le ${dateFR(nr.echeance)} et n'a pas été renouvelée. Pour toute question sur vos droits et la suite de votre accompagnement, contactez un conseiller (écran « Dossier »).</div></div>`
+    :(a.date_echeance?`<div class="muted" style="font-size:12px;margin-bottom:10px">Garantie en cours jusqu'au <b>${dateFR(a.date_echeance)}</b> — le renouvellement est étudié par votre gestionnaire à l'échéance.</div>`:"");
   const journal=env.mouvements.length?`<div class="card" style="padding:0;overflow:hidden">
       <div style="padding:14px 18px 0"><h2>Historique des mouvements <span class="sub">— libellés et commentaires du gestionnaire (F-26)</span></h2></div>
       <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Type</th><th>Libellé</th><th class="right">Montant</th><th>Commentaire du gestionnaire</th></tr></thead><tbody>
@@ -1108,6 +1111,7 @@ function aidPmvRemb(a){
       </div>`;}).join("")}</div>`
     :`<div class="muted" style="font-size:12.5px;margin-top:10px;text-align:center">Aucune demande de remboursement.</div>`;
   return `<div style="max-width:900px;margin:0 auto">
+    ${bandeauEch}
     <div class="card"><h2>Mon Porte-Monnaie Virtuel <span class="sub">— les 5 chiffres et leurs équations (F-43)</span></h2>${pmvStrip5(env)}</div>
     ${journal}${form}${list}</div>`;
 }
@@ -1286,17 +1290,19 @@ function gAssure(id){ return (STATE.assures||[]).find(x=>x.id===id); }
 function viewGest(){
   if(!GEST) GEST=gestSeed();
   const alertesN=(STATE.alertes||[]).length;
+  const echN=(STATE.echeances||[]).filter(e=>e.statut==="a_traiter").length;
   const filePaieN=(STATE.devis||[]).filter(d=>d.statut==="facturée").length
                  +(STATE.remboursements||[]).filter(r=>r.statut==="validée").length;
   const rembN=(STATE.remboursements||[]).filter(r=>r.statut==="soumise"||r.statut==="piece_demandee").length;
   const tabs=`<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-    ${[["dossiers","Dossiers",0],["paiements","Paiements à effectuer",filePaieN],["remb","Demandes de remboursement",rembN],["alertes","Alertes",alertesN],["emails","E-mails"],["exports","Exports"]].map(([id,lab,n])=>{
+    ${[["dossiers","Dossiers",0],["paiements","Paiements à effectuer",filePaieN],["remb","Demandes de remboursement",rembN],["echeances","Échéances",echN],["alertes","Alertes",alertesN],["emails","E-mails"],["exports","Exports"]].map(([id,lab,n])=>{
       const on=GEST.tab===id;
       return `<button class="btn ${on?'blue':'ghost'}" data-act="g-tab" data-tab="${id}">${lab}${n>0?`<span class="nbadge">${n}</span>`:""}</button>`;
     }).join("")}</div>`;
   let body;
   if(GEST.tab==="paiements") body=gPaiements();
   else if(GEST.tab==="remb") body=gRemboursements();
+  else if(GEST.tab==="echeances") body=gEcheances();
   else if(GEST.tab==="alertes") body=gAlertes();
   else if(GEST.tab==="emails") body=gEmails();
   else if(GEST.tab==="exports") body=gExports();
@@ -1376,9 +1382,12 @@ function gFormPreinscription(){
 
 function gDossierDetail(a){
   const env=a.pmv;
+  const nr=a.non_renouvellement;
+  const garantie=a.date_echeance?`<div class="muted" style="font-size:12px;margin-top:10px">Garantie jusqu'au <b>${dateFR(a.date_echeance)}</b> (RG-54)${nr?` <span class="chip" style="background:#FBEDEC;color:var(--bad)">Non renouvelée — décision du ${dateFR(nr.date)}</span>`:""}</div>`:"";
   const lienAct=`${location.origin+location.pathname}?dossier=${encodeURIComponent(a.id)}`;
-  const actions=`<div class="row" style="margin-top:12px">
+  const actions=garantie+`<div class="row" style="margin-top:12px">
     <button class="btn ghost" data-act="g-crediter-open" data-id="${esc(a.id)}">+ Créditer (F-21)</button>
+    <button class="btn ghost" data-act="g-ech-ren" data-id="${esc(a.id)}">↻ Renouveler (RG-54)…</button>
     ${env.bloque
       ?`<button class="btn teal" data-act="g-debloquer" data-id="${esc(a.id)}">Débloquer le PMV</button>`
       :`<button class="btn bad" data-act="g-bloquer-open" data-id="${esc(a.id)}">Bloquer le PMV…</button>`}
@@ -1579,6 +1588,47 @@ function gRemboursements(){
   return rappel+lienValidees+blocTraiter+blocCloses;
 }
 
+/* ───── PMV en fin d'échéance (F-30/RG-54) : notification à J−préavis ;
+   renouveler (demande de renouvellement reçue et valide, hors outil) ou
+   tracer le non-renouvellement. AUCUN recrédit automatique. ───── */
+function gEcheances(){
+  const pr=STATE.parametres||{};
+  const ech=STATE.echeances||[];
+  const aTraiter=ech.filter(e=>e.statut==="a_traiter");
+  const aVenir=ech.filter(e=>e.statut==="a_venir");
+  const nonRen=ech.filter(e=>e.statut==="non_renouvele");
+  const rappel=`<div class="card" style="background:var(--blueLt);border-color:var(--blue);font-size:12.5px;line-height:1.5">
+    <b>Fin d'échéance annuelle du PMV (RG-54).</b> L'outil vous notifie ${pr.preavis_echeance_jours} jours avant
+    l'échéance (crédit initial + 1 an). <b>Aucun recrédit automatique</b> : à réception d'une demande de
+    renouvellement <b>valide</b> (document hors outil), « Renouveler » crédite le PMV et reporte l'échéance d'un an ;
+    sinon, « Ne pas renouveler » trace la décision (motif interne) et notifie l'assuré-aidant. Effets du
+    non-renouvellement sur le solde restant : à l'arbitrage A-11 (en V1, le PMV n'est pas bloqué automatiquement —
+    utilisez « Bloquer » (F-27) au besoin).</div>`;
+  const jTxt=j=>j>=0?`dans ${j} j`:`dépassée de ${-j} j`;
+  const ligne=e=>{
+    const a=gAssure(e.assure_id)||{}, env=a.pmv||{};
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap">
+      <div style="flex:1;min-width:210px"><b style="font-size:13.5px">${esc(e.nom)}</b> <span class="muted" style="font-size:11.5px">· ${esc(e.assure_id)}</span>
+        <div class="muted" style="font-size:11px">Crédit cumulé ${eur(env.credit_cumule)} · solde restant <b>${eur(env.solde)}</b> · disponible ${eur(env.disponible)}</div></div>
+      <span class="chip" style="${e.jours<0?'background:#FBEDEC;color:var(--bad)':'background:var(--goldLt);color:var(--goldDk)'}">Échéance le ${dateFR(e.date_echeance)} — ${jTxt(e.jours)}</span>
+      <button class="btn teal" data-act="g-ech-ren" data-id="${esc(e.assure_id)}" style="padding:6px 11px;font-size:12px">Renouveler…</button>
+      <button class="btn bad" data-act="g-ech-nonren" data-id="${esc(e.assure_id)}" style="padding:6px 11px;font-size:12px">Ne pas renouveler…</button>
+    </div>`;};
+  const blocTraiter=aTraiter.length
+    ?`<div class="card" style="padding:0;overflow:hidden"><div style="padding:12px 16px;border-bottom:1px solid var(--line)"><b style="font-size:13.5px">À traiter (${aTraiter.length})</b>
+       <span class="muted" style="font-size:11.5px"> — fenêtre de préavis atteinte ou échéance dépassée</span></div>${aTraiter.map(ligne).join("")}</div>`
+    :`<div class="card empty">Aucun PMV en fin d'échéance.</div>`;
+  const blocVenir=aVenir.length?`<details style="margin-top:14px"><summary style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer">PROCHAINES ÉCHÉANCES (${aVenir.length})</summary>
+    <div style="display:grid;gap:5px;margin-top:8px">${aVenir.map(e=>`<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper)">
+      <b>${esc(e.nom)}</b><span class="muted" style="flex:1;font-size:11px">${esc(e.assure_id)}</span><span>échéance le ${dateFR(e.date_echeance)} (${jTxt(e.jours)})</span></div>`).join("")}</div></details>`:"";
+  const blocNon=nonRen.length?`<details style="margin-top:12px" open><summary style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer">NON RENOUVELÉS (${nonRen.length})</summary>
+    <div style="display:grid;gap:5px;margin-top:8px">${nonRen.map(e=>`<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:#FBEDEC;flex-wrap:wrap">
+      <b>${esc(e.nom)}</b><span class="muted" style="font-size:11px">${esc(e.assure_id)}</span>
+      <span style="flex:1">échéance du ${dateFR(e.date_echeance)} — décision du ${dateFR((e.non_renouvellement||{}).date)} : « ${esc((e.non_renouvellement||{}).motif||"")} »</span>
+      <button class="btn ghost" data-act="g-ech-ren" data-id="${esc(e.assure_id)}" style="padding:4px 9px;font-size:11px" title="Renouvellement tardif sur demande valide reçue">Renouveler quand même…</button></div>`).join("")}</div></details>`:"";
+  return rappel+blocTraiter+blocVenir+blocNon;
+}
+
 /* ───── Alertes (F-25, F-70) ───── */
 function gAlertes(){
   const al=STATE.alertes||[];
@@ -1588,6 +1638,19 @@ function gAlertes(){
     <button class="btn ghost" data-act="g-tache">▶ Exécuter la tâche quotidienne (F-70)</button></div>`;
   if(!al.length) return head+`<div class="card empty">Aucune alerte.</div>`;
   return head+al.map(x=>{
+    if(x.type==="echeance"){
+      const a=gAssure(x.assure_id)||{};
+      return `<div class="card" style="border:1px solid var(--gold)">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span class="chip" style="color:#fff;background:var(--goldDk)">Échéance PMV</span>
+          <b style="font-size:13.5px">${esc(a.nom_complet||x.assure_id)}</b><span class="muted" style="font-size:12px">· ${esc(x.assure_id)}</span></div>
+        <div style="font-size:12.5px;margin-top:6px">${esc(x.detail)}</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn teal" data-act="g-ech-ren" data-id="${esc(x.assure_id)}">Renouveler…</button>
+          <button class="btn bad" data-act="g-ech-nonren" data-id="${esc(x.assure_id)}">Ne pas renouveler…</button>
+          <button class="btn ghost" data-act="g-tab" data-tab="echeances">Voir l'onglet Échéances</button>
+        </div></div>`;
+    }
     if(x.type==="bordereau"){
       return `<div class="card" style="border:1px solid var(--bad)">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -1660,16 +1723,18 @@ function gModal(){
     refuserremb:{titre:"Refuser le remboursement "+(GM.ref||""),note:"L'assuré-aidant est notifié par e-mail avec le motif (F-24).",btn:"Refuser",cls:"bad"},
     bloquer:{titre:"Bloquer le PMV",note:"Plus aucun devis, engagement ni remboursement. Les engagements en cours restent honorés ; consultation et orientation accessibles (F-27, RG-50).",btn:"Bloquer",cls:"bad"},
     commenter:{titre:"Commenter le mouvement",note:"Commentaire libre, visible par l'assuré-aidant dans son historique (F-26).",btn:"Enregistrer",cls:"blue"},
-    crediter:{titre:"Créditer le PMV",note:"En V1, crédit initial et correction uniquement (F-21) ; le renouvellement annuel n'est pas outillé. Tout crédit est journalisé et irréversible — une erreur se corrige par un mouvement inverse tracé (correction négative).",btn:"Créditer",cls:"blue"},
+    crediter:{titre:"Créditer le PMV",note:"Crédit initial, renouvellement (reporte l'échéance d'un an — RG-54) ou correction (F-21/F-30). Tout crédit est journalisé et irréversible — une erreur se corrige par un mouvement inverse tracé (correction négative).",btn:"Créditer",cls:"blue"},
+    renouveler:{titre:"Renouveler le PMV",note:"À n'utiliser qu'après réception d'une demande de renouvellement VALIDE (document hors outil — RG-54). Le crédit reporte l'échéance d'un an et l'assuré-aidant est notifié (F-24). Indiquez en commentaire la date et la référence de la demande reçue.",btn:"Renouveler le PMV",cls:"teal"},
+    nonrenouveler:{titre:"Ne pas renouveler",note:"Décision tracée et notifiée à l'assuré-aidant (le motif reste interne). Motif obligatoire : aucune demande de renouvellement reçue, demande non valide… (RG-54). Un renouvellement tardif restera possible sur demande valide.",btn:"Confirmer le non-renouvellement",cls:"bad"},
   }[GM.kind];
   if(!cfg) return "";
-  const extra=GM.kind==="crediter"
+  const extra=(GM.kind==="crediter"||GM.kind==="renouveler")
     ?`<div class="row" style="margin-bottom:8px">
-        <div class="f" style="flex:0 1 150px"><label>Montant (€)</label><input class="in" id="gm-montant" placeholder="ex. 300 ou -50" style="font-weight:800"></div>
-        <div class="f" style="flex:0 1 180px"><label>Motif</label><select class="in" id="gm-motif"><option>Crédit initial</option><option>Correction</option></select></div>
-      </div><div class="f"><label>Commentaire (journalisé — F-26)</label><input class="in" id="gm-comm" placeholder="ex. Correction d'une erreur de saisie du 02/11"></div>`
+        <div class="f" style="flex:0 1 150px"><label>Montant (€)</label><input class="in" id="gm-montant" value="${esc(GM.montant||"")}" placeholder="ex. 300 ou -50" style="font-weight:800"></div>
+        ${GM.kind==="renouveler"?"":`<div class="f" style="flex:0 1 180px"><label>Motif</label><select class="in" id="gm-motif"><option>Crédit initial</option><option>Renouvellement</option><option>Correction</option></select></div>`}
+      </div><div class="f"><label>Commentaire (journalisé — F-26)</label><input class="in" id="gm-comm" placeholder="${GM.kind==="renouveler"?"ex. Demande de renouvellement reçue le 05/11, valide":"ex. Correction d'une erreur de saisie du 02/11"}"></div>`
     :`<div class="f"><label>${GM.kind==="commenter"?"Commentaire":"Motif (obligatoire)"}</label>
-       <textarea class="in" id="gm-motif-txt" rows="2" style="resize:vertical" placeholder="${GM.kind==='bloquer'?'ex. Suspicion d\\u2019usage hors objet (RG-49) — vérification en cours':'…'}">${esc(GM.prefill||"")}</textarea></div>`;
+       <textarea class="in" id="gm-motif-txt" rows="2" style="resize:vertical" placeholder="${GM.kind==='bloquer'?'ex. Suspicion d\\u2019usage hors objet (RG-49) — vérification en cours':(GM.kind==='nonrenouveler'?'ex. Aucune demande de renouvellement reçue à l’échéance':'…')}">${esc(GM.prefill||"")}</textarea></div>`;
   return `<div class="modal-bg" data-act="g-modal-close"><div class="modal">
     <h2>${cfg.titre}</h2><div class="muted" style="font-size:12px;margin-bottom:10px">${cfg.note}</div>
     ${extra}
@@ -1867,6 +1932,10 @@ document.addEventListener("click", async (e)=>{
         pfd:{prenom:f.pfdPrenom.trim(),lien:f.pfdLien,naissance:f.pfdNaissance.trim(),ndd:f.pfdNdd||f.ndd}});
       GEST.showForm=false; GEST.form=gestSeed().form; GEST.selId=r.id;
       await refresh(); toast(`Dossier ${r.id} ouvert · PMV crédité · lien d'activation adressé (e-mail simulé)`); return; }
+    if(act==="g-ech-ren"){
+      const a0=gAssure(id)||{}, m0=(((a0.pmv||{}).mouvements)||[]).find(m=>m.libelle==="Crédit initial");
+      GM={kind:"renouveler",aid:id,montant:m0?String(m0.montant):""}; MODAL=gModal; render(); return; }
+    if(act==="g-ech-nonren"){ GM={kind:"nonrenouveler",aid:id}; MODAL=gModal; render(); return; }
     if(act==="g-crediter-open"){ GM={kind:"crediter",ref:null,aid:id}; MODAL=gModal; render(); return; }
     if(act==="g-bloquer-open"){ GM={kind:"bloquer",ref:null,aid:id}; MODAL=gModal; render(); return; }
     if(act==="g-debloquer"){ await api("POST",`/api/assures/${id}/debloquer`,{commentaire:"Déblocage"}); await refresh(); toast("PMV débloqué"); return; }
@@ -1890,12 +1959,16 @@ document.addEventListener("click", async (e)=>{
         await api("POST",`/api/assures/${GM.aid}/bloquer`,{motif:txt}); toast("PMV bloqué — crédit acquis conservé (RG-50)"); }
       else if(GM.kind==="commenter"){
         await api("POST",`/api/assures/${GM.aid}/mouvements/${GM.ref}/commenter`,{commentaire:txt}); toast("Commentaire enregistré — visible par l'assuré-aidant (F-26)"); }
-      else if(GM.kind==="crediter"){
+      else if(GM.kind==="crediter"||GM.kind==="renouveler"){
         const m=($("#gm-montant")&&$("#gm-montant").value.trim())||"";
-        const motif=($("#gm-motif")&&$("#gm-motif").value)||"Crédit initial";
+        const motif=GM.kind==="renouveler"?"Renouvellement":(($("#gm-motif")&&$("#gm-motif").value)||"Crédit initial");
         const comm=($("#gm-comm")&&$("#gm-comm").value.trim())||"";
         if(!m||isNaN(parseFloat(m.replace(",",".")))){ toast("Montant invalide",true); return; }
-        await api("POST",`/api/assures/${GM.aid}/crediter`,{montant:m.replace(",","."),motif,commentaire:comm}); toast("PMV crédité — mouvement journalisé, irréversible (F-21)"); }
+        const ax=await api("POST",`/api/assures/${GM.aid}/crediter`,{montant:m.replace(",","."),motif,commentaire:comm});
+        toast(motif==="Renouvellement"?`PMV renouvelé — échéance reportée au ${dateFR(ax.date_echeance)}, assuré-aidant notifié (F-24)`:"PMV crédité — mouvement journalisé, irréversible (F-21)"); }
+      else if(GM.kind==="nonrenouveler"){ if(!txt){ toast("Motif obligatoire (RG-54)",true); return; }
+        await api("POST",`/api/assures/${GM.aid}/non-renouvellement`,{motif:txt});
+        toast("Non-renouvellement tracé — assuré-aidant notifié (F-24)"); }
       GM={kind:null}; MODAL=""; await refresh(); return; }
     if(act==="g-partiel-payer"){
       const m=($("#gm-montant")&&$("#gm-montant").value.trim())||"";

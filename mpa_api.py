@@ -32,7 +32,10 @@ Table des routes
   POST /api/assures/<id>/aides                  PFD complémentaire
   POST /api/assures/<id>/aides/<pfd>/profil     F-42 (verrou 2)
   POST /api/assures/<id>/analyse                F-44 (bilan validé)
-  POST /api/assures/<id>/crediter               F-21 {montant, motif, commentaire}
+  POST /api/assures/<id>/crediter               F-21/F-30 {montant, motif: Crédit initial|
+                                                Renouvellement|Correction, commentaire} —
+                                                Renouvellement reporte l'échéance d'un an (RG-54)
+  POST /api/assures/<id>/non-renouvellement     F-30/RG-54 {motif} : décision tracée, notifiée
   POST /api/assures/<id>/bloquer|debloquer      F-27 {motif}/{commentaire}
   POST /api/assures/<id>/mouvements/<mv>/commenter   F-26 {commentaire}
   POST /api/assures/<id>/contacts               F-52 {type, message}
@@ -188,6 +191,8 @@ def assure_view(a, store):
         "ndd": a.ndd,
         "ndd_libelle": core.NDD[a.ndd].libelle if a.ndd in core.NDD else None,
         "date_preinscription": a.date_preinscription,
+        "date_echeance": a.date_echeance,
+        "non_renouvellement": a.non_renouvellement or None,
         "etat_dossier": core.etat_dossier(store, a.id),
         "aides": [jsonable(x) for x in a.aides],
         "profil": a.profil or {},
@@ -209,6 +214,7 @@ def state_snapshot(s):
         "parametres": {
             "delai_facture_jours": core.DELAI_FACTURE_JOURS,                # A-3 (recyclé)
             "delai_bordereau_jours": core.DELAI_BORDEREAU_JOURS,            # A-7
+            "preavis_echeance_jours": core.PREAVIS_ECHEANCE_JOURS,          # F-30
             "references_contrat": s.references_contrat,
             "email_gestion": core.EMAIL_GESTION,
         },
@@ -219,6 +225,7 @@ def state_snapshot(s):
         "devis": [jsonable(d) for d in s.devis.values()],
         "remboursements": [remb_view(r) for r in s.remboursements.values()],
         "bordereaux": [jsonable(b) for b in reversed(list(s.bordereaux.values()))],
+        "echeances": core.echeances(s),
         "alertes": core.alertes(s),
         "contacts": [jsonable(c) for c in s.contacts],
         "nb_emails": len(s.emails),
@@ -437,6 +444,9 @@ class Handler(BaseHTTPRequestHandler):
                         a = APP.dossiers.completer_analyse(aid, body.get("texte", ""))
                         return self._json(assure_view(a, s))
 
+                    if action == "non-renouvellement" and len(parts) == 4:
+                        a = APP.dossiers.ne_pas_renouveler(aid, body.get("motif", ""))
+                        return self._json(assure_view(a, s))
                     if action == "crediter" and len(parts) == 4:
                         a = APP.dossiers.crediter(aid, body.get("montant"),
                                                   body.get("motif", "Crédit initial"),

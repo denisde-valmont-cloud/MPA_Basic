@@ -50,6 +50,13 @@ RG-52   Aucun paiement sans facture reçue (statut « facturée »). Le paiement
         ensuite à la banque (hors outil) puis marqué exécuté dans MPA.
 RG-53   Montant payé au pro ≤ montant engagé ; la facture (hors outil) porte
         le n° de dossier et la référence du devis.
+RG-54   Le RENOUVELLEMENT du PMV est un acte manuel du gestionnaire,
+        conditionné à une demande de renouvellement reçue et jugée valide
+        (document hors outil) : crédit « Renouvellement » (montant libre) qui
+        reporte l'échéance d'un an. Le NON-RENOUVELLEMENT est tracé (motif
+        obligatoire) et notifié à l'assuré-aidant. AUCUN recrédit automatique ;
+        l'outil notifie le gestionnaire PREAVIS_ECHEANCE_JOURS avant
+        l'échéance (F-30). Effets du non-renouvellement sur le solde : A-11.
 RG-60–63 Orientation : taxonomie fermée ; bilan validé fait foi ; assistant
         factuel, sans diagnostic ni prestataire nommé ; repli déterministe.
 
@@ -92,6 +99,8 @@ DELAI_FACTURE_JOURS = 30              # A-3 recyclé : alerte « facture attendu
 DELAI_BORDEREAU_JOURS = 3             # A-7 : alerte « bordereau non exécuté »
 EMAIL_GESTION = "gsa@assur-aidant.com"   # §9 / F-62 : destinataire des factures pros
 PRO_LIEN_MAX_OUVERTURES = 40          # A-1a : « usage limité » — plafond de consultations
+PREAVIS_ECHEANCE_JOURS = 7            # F-30 : notification avant l'échéance annuelle du PMV
+DUREE_GARANTIE_JOURS = 365            # F-30 : échéance = crédit initial + 1 an
 REFERENCES_CONTRAT = [                 # référentiel INITIAL des références contrat —
     "GSA-2026-0001 — Branche détaillants en chaussures",   # la gestion des contrats
     "GSA-2026-0002 — Branche de l'édition",                # reste HORS outil (§1) ;
@@ -250,8 +259,8 @@ class Enveloppe:
     # — F-21 : crédit manuel (initial · correction), journalisé, irréversible —
     def crediter(self, montant: Decimal, motif: str, commentaire: str = "",
                  auteur: str = "gestionnaire"):
-        if motif not in ("Crédit initial", "Correction"):
-            raise ValueError("Motif de crédit : « Crédit initial » ou « Correction ».")
+        if motif not in ("Crédit initial", "Renouvellement", "Correction"):
+            raise ValueError("Motif de crédit : « Crédit initial », « Renouvellement » ou « Correction ».")
         if montant == 0:
             raise ValueError("Crédit : montant non nul requis.")
         if montant < 0 and motif != "Correction":
@@ -324,6 +333,9 @@ class Assure:
     contrat_ref: str                  # simple référence — gestion des contrats hors outil
     ndd: int                          # NDD retenu (déterminé hors outil)
     date_preinscription: str = field(default_factory=_today)
+    date_echeance: str = ""           # F-30 : crédit initial + 1 an, reportée au renouvellement
+    echeance_traitee: str = ""        # dernière échéance pour laquelle une décision est prise
+    non_renouvellement: dict = field(default_factory=dict)  # {date, echeance, motif}
     telephone: str = ""
     aides: List[Aide] = field(default_factory=list)
     profil: dict = field(default_factory=dict)    # situationnel aidant
@@ -463,6 +475,27 @@ class Store:
         self.emails.append(Email(_now(), a, objet, corps))
 
 
+def echeances(store: Store) -> List[dict]:
+    """F-30 — pilotage des fins d'échéance : à traiter dès J−PREAVIS_ECHEANCE_JOURS."""
+    out = []
+    today = datetime.date.today()
+    for a in store.assures.values():
+        if not a.date_echeance:
+            continue
+        jours = (datetime.date.fromisoformat(a.date_echeance) - today).days
+        if a.non_renouvellement.get("echeance") == a.date_echeance:
+            statut = "non_renouvele"
+        elif jours <= PREAVIS_ECHEANCE_JOURS and a.echeance_traitee != a.date_echeance:
+            statut = "a_traiter"
+        else:
+            statut = "a_venir"
+        out.append({"assure_id": a.id, "nom": a.nom_complet, "date_echeance": a.date_echeance,
+                    "jours": jours, "statut": statut,
+                    "non_renouvellement": a.non_renouvellement or None})
+    out.sort(key=lambda x: x["date_echeance"])
+    return out
+
+
 def devis_par_jeton(store: Store, jeton: str) -> Optional[Devis]:
     """A-1a — résout le lien sécurisé pro. Jeton vide/inconnu -> None."""
     j = (jeton or "").strip()
@@ -571,6 +604,8 @@ class MoteurDossiers:
         env = Enveloppe(a.id)
         self.s.enveloppes[a.id] = env
         env.crediter(montant, "Crédit initial", commentaire, "gestionnaire")
+        a.date_echeance = (datetime.date.today()
+                           + datetime.timedelta(days=DUREE_GARANTIE_JOURS)).isoformat()
 
         if (lien_base or "").strip():
             self.s.lien_base = lien_base.strip()
@@ -583,11 +618,40 @@ class MoteurDossiers:
                      "Votre PMV devient alors utilisable.")
         return a
 
-    # — F-21 : crédit manuel —
+    # — F-21 : crédit manuel · F-30/RG-54 : renouvellement sur demande valide —
     def crediter(self, assure_id, montant, motif, commentaire=""):
         env = self.s.pmv(assure_id)
         env.crediter(D(montant), motif, commentaire)
-        return self.s.assures[assure_id]
+        a = self.s.assures[assure_id]
+        if motif == "Renouvellement":
+            base = a.date_echeance or _today()
+            a.date_echeance = (datetime.date.fromisoformat(base)
+                               + datetime.timedelta(days=DUREE_GARANTIE_JOURS)).isoformat()
+            a.echeance_traitee = ""
+            a.non_renouvellement = {}
+            self.s.email(a.email, f"[MPA] Votre PMV est renouvelé — {a.id}",
+                         f"Votre Pouvoir Mon Village est renouvelé : {eur(D(montant))} sont "
+                         f"crédités. Votre garantie court désormais jusqu'au {a.date_echeance}.")
+        return a
+
+    # — F-30/RG-54 : non-renouvellement tracé (motif obligatoire), notifié —
+    def ne_pas_renouveler(self, assure_id, motif) -> Assure:
+        a = self.s.assures.get(assure_id)
+        if a is None:
+            raise KeyError(f"Dossier introuvable : {assure_id}")
+        if not (motif or "").strip():
+            raise ValueError("Motif obligatoire (ex. aucune demande de renouvellement reçue, "
+                             "demande non valide) — RG-54.")
+        if not a.date_echeance:
+            raise ValueError("Aucune échéance posée sur ce dossier.")
+        a.echeance_traitee = a.date_echeance
+        a.non_renouvellement = {"date": _today(), "echeance": a.date_echeance,
+                                "motif": motif.strip()}
+        self.s.email(a.email, f"[MPA] Votre garantie n'a pas été renouvelée — {a.id}",
+                     f"Votre garantie est arrivée à échéance le {a.date_echeance} et n'a pas "
+                     "été renouvelée. Pour toute question, rapprochez-vous de votre conseiller "
+                     "(rubrique « Contacter un conseiller »).")
+        return a
 
     # — F-41 : profil + RIB (verrou 1) —
     def completer_profil(self, assure_id, iban, telephone="", profil=None) -> Assure:
@@ -1056,6 +1120,14 @@ def alertes(store: Store) -> List[dict]:
                 out.append({"type": "facture_attendue", "devis_id": d.id, "assure_id": d.assure_id,
                             "detail": f"Engagé le {d.date_engagement} — aucune facture reçue "
                                       f"depuis {attente} jours (délai A-3 : {DELAI_FACTURE_JOURS} j)"})
+    for e in echeances(store):
+        if e["statut"] == "a_traiter":
+            j = e["jours"]
+            out.append({"type": "echeance", "assure_id": e["assure_id"],
+                        "detail": f"Échéance du PMV le {e['date_echeance']} "
+                                  f"({'dans ' + str(j) + ' jour(s)' if j >= 0 else 'dépassée de ' + str(-j) + ' jour(s)'}) — "
+                                  "renouveler (demande de renouvellement reçue et valide) ou "
+                                  "tracer le non-renouvellement (RG-54)"})
     for b in store.bordereaux.values():
         if b.statut == "à exécuter":
             attente = (today - datetime.date.fromisoformat(b.date)).days
@@ -1072,7 +1144,8 @@ def tache_quotidienne(store: Store) -> dict:
     al = alertes(store)
     return {"date": _now(), "alertes": al,
             "message": f"{len(al)} alerte(s) : {sum(1 for a in al if a['type']=='facture_attendue')} facture(s) "
-                       f"attendue(s), {sum(1 for a in al if a['type']=='bordereau')} bordereau(x) non exécuté(s). "
+                       f"attendue(s), {sum(1 for a in al if a['type']=='bordereau')} bordereau(x) non exécuté(s), "
+                       f"{sum(1 for a in al if a['type']=='echeance')} échéance(s) de PMV. "
                        "Aucune action automatique (F-70)."}
 
 
@@ -1089,11 +1162,14 @@ def _csv(rows: List[List]) -> str:
 def exporter(store: Store, quoi: str) -> str:
     if quoi == "dossiers":
         rows = [["N_dossier", "Nom", "Prenom", "Email", "Contrat_ref", "NDD", "Etat",
-                 "Date_preinscription", "Credit_cumule", "Disponible", "Engage", "Paye", "Solde"]]
+                 "Date_preinscription", "Date_echeance", "Non_renouvele",
+                 "Credit_cumule", "Disponible", "Engage", "Paye", "Solde"]]
         for a in store.assures.values():
             e = store.pmv(a.id)
             rows.append([a.id, a.nom, a.prenom, a.email, a.contrat_ref, a.ndd,
                          etat_dossier(store, a.id), a.date_preinscription,
+                         a.date_echeance,
+                         "oui" if a.non_renouvellement.get("echeance") == a.date_echeance else "non",
                          e.credit_cumule, e.disponible, e.engage, e.paye, e.solde])
     elif quoi == "mouvements":
         rows = [["N_dossier", "Date", "Type", "Montant", "Libelle", "Reference", "Auteur", "Commentaire"]]
@@ -1668,6 +1744,11 @@ def seed() -> Store:
     mv_.facture_recue(d1.id, j(4))
     _lot = payer_lot(s, [d1.id], [], commentaire="Virement CERA du " + j(2))
     executer_bordereau(s, _lot["bordereau"].id)
+
+    # F-30 — échéances de démonstration : Claire à J−5 (fenêtre de préavis),
+    #        Léa lointaine (dossier récent)
+    claire.date_echeance = (datetime.date.today() + datetime.timedelta(days=5)).isoformat()
+    lea.date_echeance = (datetime.date.today() + datetime.timedelta(days=340)).isoformat()
 
     # D02 — FACTURE REÇUE (= validation, RG-45) → FILE DES PAIEMENTS (F-22)
     d2 = mv_.demander(claire.id, "PR-87", "Coordonner les intervenants autour de Hugo.")
