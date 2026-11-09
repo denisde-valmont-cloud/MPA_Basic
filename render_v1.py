@@ -11,6 +11,36 @@ from http.server import ThreadingHTTPServer
 s = socket.socket(); s.bind(("127.0.0.1", 0)); PORT = s.getsockname()[1]; s.close()
 httpd = ThreadingHTTPServer(("127.0.0.1", PORT), mpa_api.Handler)
 threading.Thread(target=httpd.serve_forever, daemon=True).start(); time.sleep(0.3)
+def _req(m, p, b=None):
+    d = json.dumps(b).encode() if b is not None else None
+    rq = urllib.request.Request(f"http://127.0.0.1:{PORT}"+p, data=d, method=m,
+                                headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(rq, timeout=8) as x:
+        return json.loads(x.read().decode())
+
+# A-1a — le pro répond par lien : on constitue de VRAIES vues /api/pro/<jeton>
+_st0 = _req("GET", "/api/state")
+_cla = next(a for a in _st0["assures"] if a["prenom"] == "Claire")["id"]
+_d_dem = _req("POST", "/api/devis", {"assure_id": _cla, "prestation_id": "PR-86",
+              "message": "Classement des courriers CAF.", "lien_base": "http://x/"})
+_d_eng = _req("POST", "/api/devis", {"assure_id": _cla, "prestation_id": "PR-86",
+              "message": "Suivi du dossier MDPH."})
+_req("POST", f"/api/pro/{_d_eng['jeton']}/etablir", {"quantite": 2})
+_req("POST", f"/api/devis/{_d_eng['id']}/accepter")
+_st1 = _req("GET", "/api/state")
+def _jeton(suff):
+    return next(d["jeton"] for d in _st1["devis"] if d["id"].endswith(suff))
+PRO_VIEWS = {
+    "demande":     _req("GET", f"/api/pro/{_d_dem['jeton']}"),
+    "devisé":      _req("GET", f"/api/pro/{_jeton('D04')}"),
+    "engagé":      _req("GET", f"/api/pro/{_d_eng['jeton']}"),
+    "réalisée":    _req("GET", f"/api/pro/{_jeton('D03')}"),
+    "réalisée_sf": _req("GET", f"/api/pro/{_jeton('D02')}"),
+    "payé":        _req("GET", f"/api/pro/{_jeton('D01')}"),
+}
+PRO_VIEWS_JSON = json.dumps(PRO_VIEWS, ensure_ascii=False)
+NOM_CLAIRE = next(a for a in _st0["assures"] if a["prenom"] == "Claire")["nom_complet"]
+
 with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/state", timeout=8) as r:
     STATE_JSON = r.read().decode()
 with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/emails", timeout=8) as r:
@@ -36,8 +66,8 @@ const EMS=__EMAILS__;
 const READY=STATE.assures.find(a=>a.prenom==="Claire");
 const BLOCKED=STATE.assures.find(a=>a.prenom==="Léa");
 AIDANT_ID=READY.id;
-AID=aidSeed(); AID.boundTo=READY.id; GEST=gestSeed(); PRO=proSeed();
-PRO_ID=(STATE.devis[0]||{}).pro_id;
+AID=aidSeed(); AID.boundTo=READY.id; GEST=gestSeed(); PROF={devisQty:"",motifOpen:false};
+const PV=__PROVIEWS__;            // vraies réponses de GET /api/pro/<jeton> (A-1a)
 const out={}; const cap=(k,f)=>{ try{ const v=String(f()); if(!v) throw new Error("vide"); out[k]=v; }catch(e){ out[k]="ERR::"+e.message; } };
 
 /* — assuré-aidant — */
@@ -66,14 +96,15 @@ cap("profilform",()=>aidProfilForm(BLOCKED));
 cap("pdform",()=>pdForm(READY.aides[0]));
 cap("contactmodal",()=>contactModal());
 
-/* — pro — */
-cap("viewPro",()=>viewPro());
-for(const st of ["demande","devisé","engagé","réalisée","payé"]){
-  const d=STATE.devis.find(x=>x.statut===st)||Object.assign({},STATE.devis[0],{statut:st,service_fait:false});
-  PRO.selId=d.id; cap("proDetail_"+st,()=>viewProDetail(d));
-}
-cap("proDetail_contestée",()=>viewProDetail(Object.assign({},STATE.devis[0],{statut:"contestée",motif_contestation:"Incomplète"})));
-PRO.motifOpen=true; cap("proDetail_decliner",()=>viewProDetail(Object.assign({},STATE.devis[0],{statut:"demande",total:null,quantite:null}))); PRO.motifOpen=false;
+/* — pro : formulaire mono-demande ouvert par ?pro=<jeton> (A-1a) — */
+PRO_JETON="jeton-harness";
+for(const st of Object.keys(PV)){ PRO_DATA=PV[st]; PRO_ERR=null; cap("proForm_"+st,()=>viewProForm()); }
+PRO_DATA=Object.assign({},PV["réalisée"],{statut:"contestée",motif_contestation:"Incomplète"});
+cap("proForm_contestée",()=>viewProForm());
+PROF.motifOpen=true; PRO_DATA=PV["demande"]; cap("proForm_decliner",()=>viewProForm()); PROF.motifOpen=false;
+PRO_DATA=null; PRO_ERR="Lien expiré (nombre d'ouvertures atteint) — contactez le gestionnaire : gsa@assur-aidant.com";
+cap("proForm_erreur",()=>viewProForm());
+PRO_ERR=null; PRO_JETON=null;
 
 /* — gestionnaire — */
 cap("gDossiers",()=>{GEST=gestSeed(); return viewGest();});
@@ -133,10 +164,18 @@ GM={kind:null};
     "dossier profils": /id="ai-iban"/.test(out.profilform) && /id="ai-tel"/.test(out.profilform),
     "pdform aidesf autre": /pd-aidesf-autre/.test(out.pdform),
     "bilan situationnel libellé": /Bilan situationnel/.test(out.fiche),
-    "pro bandeau lien sécurisé": /lien sécurisé à usage limité/.test(out.viewPro),
-    "pro consigne facture F-62": /n° de dossier/.test(out.viewPro) && /référence du devis/.test(out.viewPro),
-    "pro decliner motif": /Motif du refus \(obligatoire/.test(out.proDetail_decliner),
-    "pro réalisée aucun paiement auto": /Aucun paiement automatique/.test(out.proDetail_réalisée)||/En attente du virement/.test(out.proDetail_réalisée),
+    "pro A-1a sans compte, usage limité": /sans compte \(A-1a\)/.test(out.proForm_demande) && /usage limité/.test(out.proForm_demande) && /consultation \d+\/\d+/.test(out.proForm_demande),
+    "pro A-1a minimisation (jamais le nom de l'aidant)": __NOMCLAIRE__.split(" ").every(m=>Object.keys(PV).every(st=>!out["proForm_"+st].includes(m))),
+    "pro n° dossier + besoin exprimé": new RegExp("Dossier <b>"+PV["demande"].dossier).test(out.proForm_demande) && /Besoin exprimé : « Classement des courriers CAF. »/.test(out.proForm_demande),
+    "pro consigne facture F-62": /n° de dossier/.test(out.proForm_payé) && new RegExp("référence "+PV["payé"].ref).test(out.proForm_payé),
+    "pro decliner motif": /Motif du refus \(obligatoire/.test(out.proForm_decliner),
+    "pro réalisée aucun paiement auto": /Aucun paiement automatique/.test(out.proForm_réalisée),
+    "pro service fait → facture": /adresser votre facture/.test(out.proForm_réalisée_sf),
+    "pro engagé → déclarer réalisée": /p-realisee/.test(out.proForm_engagé),
+    "pro lien expiré (page d'erreur)": /Lien invalide, révoqué ou expiré/.test(out.proForm_erreur),
+    "header sans rôle pro (2 espaces)": __HDROK__,
+    "gest e-mails : lien ?pro= cliquable": /href="http:\/\/x\/\?pro=|\?pro=/.test(out.gEmails) && /<a href=/.test(out.gEmails),
+    "gest dossier : renvoi du formulaire pro": /formulaire pro ↗/.test(out.gDossierDetail),
     "gest file paiements RG-52": /acte manuel \(RG-52\)/.test(out.gPaiements) && /Marquer payés/.test(out.gPaiements),
     "gest file partiel bouton": /Partiel…/.test(out.gPaiements),
     "gest remb valider RG-44": /partiel automatique — RG-44/i.test(out.gRemb),
@@ -165,7 +204,11 @@ GM={kind:null};
     badChecks:bad.map(([k])=>k), okChecks:Object.keys(checks).length-bad.length}));
 })();
 """
-tail = tail.replace("__STATE__", STATE_JSON).replace("__EMAILS__", EMAILS_JSON)
+HDR_OK = ('data-role="pro"' not in h) and h.count('data-act="role"') == 2
+tail = (tail.replace("__STATE__", STATE_JSON).replace("__EMAILS__", EMAILS_JSON)
+            .replace("__PROVIEWS__", PRO_VIEWS_JSON)
+            .replace("__NOMCLAIRE__", json.dumps(NOM_CLAIRE, ensure_ascii=False))
+            .replace("__HDROK__", "true" if HDR_OK else "false"))
 open("/tmp/_rv1.js", "w", encoding="utf-8").write(harness + js + tail)
 r = subprocess.run(["node", "/tmp/_rv1.js"], capture_output=True, text=True, timeout=90)
 if r.returncode != 0:

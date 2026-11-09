@@ -3,15 +3,18 @@
 MPA — API HTTP V1 (spécifications fonctionnelles V1.1 du 6 novembre 2026)
 =========================================================================
 
-Expose le cœur de domaine (mpa_core) en HTTP pour les trois rôles :
-Assuré-aidant · Professionnel de l'aidance (lien sécurisé) · Gestionnaire
-indemnisation. stdlib uniquement (http.server), CORS ouvert, shell servi sur /.
+Expose le cœur de domaine (mpa_core) en HTTP. Deux espaces (Assuré-aidant ·
+Gestionnaire indemnisation) ; le professionnel n'a PAS de compte : il répond via
+/?pro=<jeton> (A-1a), un formulaire mono-demande servi par les routes /api/pro/…
+qui n'exposent QUE le nécessaire (n° de dossier, besoin exprimé, prestation).
+stdlib uniquement (http.server), CORS ouvert, shell servi sur /.
 
 Lancement :   python3 mpa_api.py            (port 8765, ou variable PORT)
 
 Table des routes
 ----------------
-  GET  /                                        shell 3 rôles (mpa_demo.html)
+  GET  /                                        shell (mpa_demo.html) ; ?pro=<jeton> ->
+                                                formulaire pro mono-demande (A-1a)
   GET  /api/state                               instantané complet
   GET  /api/diag[?ping=1]                       diagnostic (clé LLM, catalogue)
   GET  /api/catalogue                           pros + prestations + départements
@@ -30,12 +33,15 @@ Table des routes
   POST /api/assures/<id>/bloquer|debloquer      F-27 {motif}/{commentaire}
   POST /api/assures/<id>/mouvements/<mv>/commenter   F-26 {commentaire}
   POST /api/assures/<id>/contacts               F-52 {type, message}
-  POST /api/devis                               F-47 {assure_id, prestation_id, message}
-  POST /api/devis/<réf>/etablir                 F-60 {quantite, message_pro}
-  POST /api/devis/<réf>/refuser-pro             F-60 {motif}
+  GET  /api/pro/<jeton>                         A-1a : la demande, vue PRO (minimisée —
+                                                n° dossier, besoin, prestation ; compte
+                                                les ouvertures, plafond « usage limité »)
+  POST /api/pro/<jeton>/etablir                 F-60 {quantite, message_pro}
+  POST /api/pro/<jeton>/refuser                 F-60 {motif}
+  POST /api/pro/<jeton>/realisee                F-61 — ouvre le délai A-3
+  POST /api/devis                               F-47 {assure_id, prestation_id, message, lien_base?}
   POST /api/devis/<réf>/accepter                F-48 = engagement automatique (RG-51)
   POST /api/devis/<réf>/refuser                 F-48 (assuré-aidant)
-  POST /api/devis/<réf>/realisee                F-61
   POST /api/devis/<réf>/service-fait            F-49 {par?, motif?} (gestionnaire : F-25)
   POST /api/devis/<réf>/contester               F-49 {motif}
   POST /api/devis/<réf>/payer                   F-22 {montant?, commentaire?} — MANUEL (RG-52/53)
@@ -122,6 +128,47 @@ def remb_view(r):
     d["justificatif_data"] = ""                       # jamais dans le state (poids)
     d["a_justificatif"] = bool(r.justificatif_data)
     return d
+
+
+def pro_view(d, store):
+    """A-1a — vue du formulaire pro : LE STRICT NÉCESSAIRE (minimisation).
+    Ni identité de l'assuré-aidant, ni PMV, ni profils : n° de dossier,
+    besoin exprimé, prestation, étape et consignes de facturation."""
+    p = store.prestations.get(d.prestation_id)
+    pro = store.pros.get(d.pro_id)
+    return {
+        "jeton": d.jeton,
+        "ref": d.id,
+        "dossier": d.assure_id,                       # = n° de dossier (§9)
+        "statut": d.statut,
+        "besoin": d.message,                          # F-47 — besoin exprimé
+        "message_pro": d.message_pro,
+        "quantite": str(d.quantite) if d.quantite is not None else None,
+        "total": str(d.total) if d.total is not None else None,
+        "date_demande": d.date_demande,
+        "date_realisee": d.date_realisee,
+        "echeance_confirmation": d.echeance_confirmation,
+        "service_fait": d.service_fait,
+        "motif_contestation": d.motif_contestation,
+        "motif_refus": d.motif_refus,
+        "motif_annulation": d.motif_annulation,
+        "montant_paye": str(d.montant_paye) if d.montant_paye is not None else None,
+        "date_paiement": d.date_paiement,
+        "commentaire_paiement": d.commentaire_paiement,
+        "prestation": {
+            "nom": p.nom if p else d.prestation_id,
+            "prix": str(p.prix) if p else None,
+            "unite": p.unite if p else "",
+            "forfait": bool(p and p.forfait),
+        },
+        "pro_nom": pro.nom if pro else "",
+        "ouvertures": d.jeton_ouvertures,
+        "max_ouvertures": core.PRO_LIEN_MAX_OUVERTURES,
+        "parametres": {
+            "delai_confirmation_jours": core.DELAI_CONFIRMATION_JOURS,
+            "email_gestion": core.EMAIL_GESTION,
+        },
+    }
 
 
 def assure_view(a, store):
@@ -285,6 +332,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err("Dossier introuvable", 404)
                 return self._json(assure_view(a, s))
 
+            if len(parts) == 3 and parts[:2] == ["api", "pro"]:
+                with APP.lock:
+                    d = core.devis_par_jeton(s, parts[2])
+                    if d is None:
+                        return self._err("Lien invalide ou révoqué", 404)
+                    if d.jeton_ouvertures >= core.PRO_LIEN_MAX_OUVERTURES:
+                        return self._err("Lien expiré (nombre d'ouvertures atteint) — "
+                                         "contactez le gestionnaire : "
+                                         + core.EMAIL_GESTION, 410)
+                    d.jeton_ouvertures += 1            # « usage limité » (A-1a)
+                    return self._json(pro_view(d, s))
+
             if parts == ["api", "alertes"]:
                 return self._json({"alertes": core.alertes(s)})
 
@@ -390,27 +449,38 @@ class Handler(BaseHTTPRequestHandler):
                                                    body.get("message", ""))
                         return self._json(jsonable(c), 201)
 
+                # — A-1a : réponses du PRO, exclusivement via son jeton —
+                if len(parts) == 4 and parts[:2] == ["api", "pro"]:
+                    d = core.devis_par_jeton(s, parts[2])
+                    if d is None:
+                        return self._err("Lien invalide ou révoqué", 404)
+                    action = parts[3]
+                    if action == "etablir":
+                        d = APP.devis.etablir(d.id, body.get("quantite"),
+                                              body.get("message_pro", ""))
+                    elif action == "refuser":
+                        d = APP.devis.refuser_pro(d.id, body.get("motif", ""))
+                    elif action == "realisee":
+                        d = APP.devis.declarer_realisee(d.id)
+                    else:
+                        return self._err("Action pro inconnue", 404)
+                    return self._json(pro_view(d, s))
+
                 # — Cycle devis (§7.1) —
                 if parts == ["api", "devis"]:
                     d = APP.devis.demander(body.get("assure_id"), body.get("prestation_id"),
-                                           body.get("message", ""))
+                                           body.get("message", ""),
+                                           lien_base=body.get("lien_base", ""))
                     return self._json(jsonable(d), 201)
 
                 if len(parts) == 4 and parts[:2] == ["api", "devis"]:
                     did, action = parts[2], parts[3]
                     if did not in s.devis:
                         return self._err("Devis introuvable", 404)
-                    if action == "etablir":
-                        d = APP.devis.etablir(did, body.get("quantite"),
-                                              body.get("message_pro", ""))
-                    elif action == "refuser-pro":
-                        d = APP.devis.refuser_pro(did, body.get("motif", ""))
-                    elif action == "accepter":
+                    if action == "accepter":
                         d = APP.devis.accepter(did)
                     elif action == "refuser":
                         d = APP.devis.refuser(did)
-                    elif action == "realisee":
-                        d = APP.devis.declarer_realisee(did)
                     elif action == "service-fait":
                         d = APP.devis.confirmer_service_fait(
                             did, body.get("par", "assuré-aidant"), body.get("motif", ""))

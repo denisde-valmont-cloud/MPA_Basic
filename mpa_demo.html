@@ -68,6 +68,7 @@
   .nbadge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--bad);color:#fff;font-size:10.5px;font-weight:800;margin-left:6px}
   .dosbar{position:sticky;top:0;z-index:30;background:var(--purple);color:#fff;border-radius:13px;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;box-shadow:0 6px 18px rgba(122,45,107,.25)}
   .dosbar .num{font-weight:800;letter-spacing:.5px;font-size:14.5px}
+  body.promode #tabs, body.promode .apibox{display:none}
   .modal-bg{position:fixed;inset:0;background:rgba(42,36,51,.45);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px}
   .modal{background:#fff;border-radius:16px;padding:20px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow:auto}
 </style>
@@ -75,7 +76,7 @@
 <body>
 <div class="wrap">
   <div class="top">
-    <div class="brand">MPA — V1<small>Spécifications fonctionnelles V1.1 · un PMV, trois rôles · paiements manuels du gestionnaire</small></div>
+    <div class="brand">MPA — V1<small>Spécifications fonctionnelles V1.1 · un PMV par dossier · le pro répond par lien sécurisé, sans compte</small></div>
     <div class="apibox">
       <input id="apiUrl" value="http://127.0.0.1:8765">
       <button class="btn ghost" data-act="connect">Connecter</button>
@@ -84,7 +85,6 @@
   </div>
   <div class="tabs" id="tabs">
     <button class="tab aidant on" data-act="role" data-role="aidant">Assuré-aidant</button>
-    <button class="tab pro" data-act="role" data-role="pro">Pro de l'aidance</button>
     <button class="tab indem" data-act="role" data-role="indem">Gestionnaire indemnisation</button>
   </div>
   <div id="panel"></div>
@@ -97,13 +97,16 @@
    ║  MPA V1 — shell 3 rôles (specs fonctionnelles V1.1 du 06/11/2026)       ║
    ║  SOMMAIRE                                                               ║
    ║   §1  État global, accès API, rendu                                     ║
+   ║       (mode « pro » : ?pro=<jeton> -> GET /api/pro/<jeton> seulement,   ║
+   ║        jamais /api/state — minimisation des données)                    ║
    ║   §2  Helpers (PMV 5 chiffres & équations F-43, fil d'avancement F-50)  ║
    ║   §3  Profils situationnels (F-41/F-42) — formulaires aidant & PFD      ║
    ║   §4  Ma situation (F-44/F-45) : bilan IA validé, besoins, parcours     ║
    ║   §5  Trouver un pro (F-46) : catégories retenues + catalogue 3 facettes║
    ║   §6  Assuré-aidant : Accueil · Prestations (F-49/F-50) ·               ║
    ║       Mon PMV & remboursements (F-43/F-51) · Dossier · Contact (F-52)   ║
-   ║   §7  Pro de l'aidance (F-60/F-61) — accès par lien sécurisé (A-1a)     ║
+   ║   §7  Pro de l'aidance (F-60/F-61) — SANS COMPTE : formulaire           ║
+   ║       mono-demande ouvert par ?pro=<jeton> reçu par e-mail (A-1a)       ║
    ║   §8  Gestionnaire (F-20 à F-28) : dossiers, FILE DES PAIEMENTS,        ║
    ║       remboursements, alertes, e-mails simulés, exports                 ║
    ║   §9  Écouteurs d'événements                                            ║
@@ -118,7 +121,9 @@ let API = SAME_ORIGIN || "http://127.0.0.1:8765";
 let ROLE = "aidant";
 let STATE = null;
 let AIDANT_ID = null;
-let PRO_ID = null;      // démo : identité du pro simulée (accès réel : lien e-mail)
+let PRO_JETON = null;   // A-1a — jeton du lien sécurisé (?pro=…) : mode formulaire pro
+let PRO_DATA = null;    //        la demande servie par GET /api/pro/<jeton> (minimisée)
+let PRO_ERR = null;     //        erreur d'accès (lien invalide, révoqué, plafond atteint)
 
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function eur(x){ const n=Number(x); return isNaN(n)?"—":n.toLocaleString("fr-FR",{style:"currency",currency:"EUR"}); }
@@ -139,6 +144,7 @@ async function api(method, path, body){
 }
 
 async function refresh(){
+  if(PRO_JETON) return refreshPro();          // le formulaire pro ne voit QUE sa demande
   try{
     STATE=await api("GET","/api/state");
   }catch(e){ STATE=null; toast("API injoignable : "+e.message,true); render(); return; }
@@ -150,11 +156,23 @@ async function refresh(){
 
 function updateTabs(){ document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.dataset.role===ROLE)); }
 
+async function refreshPro(){
+  try{ PRO_DATA=await api("GET","/api/pro/"+encodeURIComponent(PRO_JETON)); PRO_ERR=null; }
+  catch(e){ PRO_DATA=null; PRO_ERR=e.message||"Lien invalide"; }
+  render();
+}
+
 function render(){
+  if(PRO_JETON){                              // A-1a — pas d'espace : un formulaire
+    document.body.classList.add("promode");
+    $("#panel").innerHTML=viewProForm();
+    $("#modal-root").innerHTML="";
+    return;
+  }
   updateTabs();
   const p=$("#panel");
   if(!STATE){ p.innerHTML=`<div class="card empty">Connectez-vous à l'API (bouton « Connecter »).</div>`; return; }
-  p.innerHTML = ROLE==="pro" ? viewPro() : ROLE==="indem" ? viewGest() : viewAidant();
+  p.innerHTML = ROLE==="indem" ? viewGest() : viewAidant();
   $("#modal-root").innerHTML = MODAL ? (typeof MODAL==="function"?MODAL():MODAL) : "";
 }
 let MODAL="";   // contenu HTML du modal courant ("" = fermé)
@@ -1121,10 +1139,9 @@ function contactModal(){
 }
 
 /* ═══════ §7 · Professionnel de l'aidance (§4 des specs, arbitrage A-1a) ═══════ */
-function proSeed(){ return { selId:null, devisQty:"", motifOpen:false }; }
-let PRO = proSeed();
+let PROF = { devisQty:"", motifOpen:false };   // saisies du formulaire pro (A-1a)
 function P_presta(id){ return ((STATE&&STATE.prestations)||[]).find(p=>p.id===id)||{}; }
-function P_aidant(id){ const a=((STATE&&STATE.assures)||[]).find(x=>x.id===id); return a?a.nom_complet:id; }
+function lienPro(jeton){ return location.origin+location.pathname+"?pro="+encodeURIComponent(jeton||""); }
 
 const P_ST={
   demande:["À chiffrer","Demande de devis reçue","var(--gold)"],
@@ -1137,57 +1154,33 @@ const P_ST={
   "annulé":["Annulé","Annulé par le gestionnaire","var(--bad)"],
 };
 
-function viewPro(){
-  const pros=(STATE.pros||[]).filter(p=>(STATE.devis||[]).some(d=>d.pro_id===p.id));
-  if(!PRO_ID||!pros.some(p=>p.id===PRO_ID)) PRO_ID=pros.length?pros[0].id:null;
-  const mes=(STATE.devis||[]).filter(d=>d.pro_id===PRO_ID);
-  const sel=pros.length?`<select class="in" id="sel-pro" style="flex:0 1 300px;font-weight:700">
-      ${pros.map(p=>`<option value="${esc(p.id)}" ${p.id===PRO_ID?'selected':''}>${esc(p.nom)}</option>`).join("")}</select>`:"";
+function viewProForm(){
+  const mail=(PRO_DATA&&PRO_DATA.parametres&&PRO_DATA.parametres.email_gestion)||"gsa@assur-aidant.com";
+  if(PRO_ERR||!PRO_DATA){
+    return `<div style="max-width:640px;margin:40px auto"><div class="card" style="text-align:center;padding:34px 26px">
+      <div style="font-size:34px;margin-bottom:10px">🔒</div>
+      <div style="font-weight:800;font-size:17px;margin-bottom:8px">Lien invalide, révoqué ou expiré</div>
+      <div class="muted" style="font-size:13px;line-height:1.55">${esc(PRO_ERR||"Ce lien ne correspond à aucune demande en cours.")}<br>
+      Les liens de réponse sont propres à chaque demande et à usage limité (A-1a).<br>
+      Besoin d'un nouveau lien ? Écrivez au gestionnaire : <b>${esc(mail)}</b>.</div></div></div>`;
+  }
+  const d=PRO_DATA, p=d.prestation||{}, st=P_ST[d.statut]||["?","","var(--muted)"];
+  const forfait=!!p.forfait, pu=Number(p.prix);
+  const delai=(d.parametres||{}).delai_confirmation_jours;
   const bandeau=`<div class="card" style="background:var(--blueLt);border-color:var(--blue)">
-    <div style="font-size:12.5px;line-height:1.55"><b>Accès sans compte (V1 — arbitrage A-1a).</b> À chaque demande de devis, le professionnel reçoit un
-    e-mail (adresse du catalogue aidance-pro) avec le <b>n° de dossier</b>, le besoin exprimé et un <b>lien sécurisé à usage limité</b> vers ce formulaire.
-    <span class="muted">Démo : choisissez le professionnel ${sel} pour voir ses demandes.</span></div></div>`;
-  if(!mes.length) return `<div style="max-width:900px;margin:0 auto">${bandeau}<div class="card empty">Aucune demande de devis pour ce professionnel.</div></div>`;
-  const counts={chiffrer:mes.filter(d=>d.statut==="demande").length,
-    realiser:mes.filter(d=>d.statut==="engagé").length,
-    attente:mes.filter(d=>d.statut==="réalisée").length,
-    payes:mes.filter(d=>d.statut==="payé").length};
-  const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-    ${[["À chiffrer",counts.chiffrer,"var(--gold)",counts.chiffrer>0],["À réaliser",counts.realiser,"var(--purple)"],["En attente de confirmation",counts.attente,"var(--tealMid)"],["Payés",counts.payes,"var(--good)"]].map(([l,v,c,hl])=>`<div style="flex:1 1 150px;background:${hl?'var(--goldLt)':'var(--card)'};border:1px solid ${hl?'var(--gold)':'var(--line)'};border-radius:14px;padding:13px 15px"><div style="font-size:26px;font-weight:800;color:${c}">${v}</div><div class="muted" style="font-size:12px;font-weight:600">${l}</div></div>`).join("")}</div>`;
-  const rows=mes.slice().reverse().map(d=>{
-    const p=P_presta(d.prestation_id), st=P_ST[d.statut]||["?","","var(--muted)"], on=PRO.selId===d.id;
-    return `<tr style="${on?'background:var(--paper)':''}">
-      <td style="font-weight:700;font-size:12px;white-space:nowrap">${esc(d.id)}</td>
-      <td>${esc(P_aidant(d.assure_id))}</td>
-      <td style="font-size:12.5px">${esc(p.nom||"")}</td>
-      <td class="right" style="font-weight:700;white-space:nowrap">${d.total?eur(d.total):"—"}</td>
-      <td><span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}</span></td>
-      <td class="right"><button class="btn ghost" data-act="p-select" data-id="${esc(d.id)}" style="padding:6px 11px;font-size:12px">${on?"Fermer":"Ouvrir"}</button></td></tr>`;
-  }).join("");
-  const selDv=mes.find(d=>d.id===PRO.selId);
-  return `<div style="max-width:940px;margin:0 auto">${bandeau}${kpis}
-    <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table>
-      <thead><tr><th>Référence</th><th>Assuré-aidant</th><th>Prestation</th><th class="right">Montant</th><th>Statut</th><th></th></tr></thead>
-      <tbody>${rows}</tbody></table></div></div>
-    ${selDv?viewProDetail(selDv):""}
-    <div class="card" style="background:var(--paper)"><div style="font-size:12px;line-height:1.5"><b>Facturation (F-62, hors outil) :</b>
-      adressez votre facture par e-mail à <b>${esc((STATE.parametres||{}).email_gestion||"gsa@assur-aidant.com")}</b> en mentionnant le
-      <b>n° de dossier</b> et la <b>référence du devis</b>. Le paiement est effectué par virement par le gestionnaire après confirmation
-      du service fait, dans la limite du montant engagé (RG-52, RG-53).</div></div></div>`;
-}
-
-function viewProDetail(d){
-  const p=P_presta(d.prestation_id), st=P_ST[d.statut]||["?","","var(--muted)"];
-  const forfait=p.unite==="Prestation complète";
+    <div style="font-size:12.5px;line-height:1.55"><b>Réponse professionnelle sans compte (A-1a).</b>
+    Vous ouvrez le formulaire sécurisé de la demande <b>${esc(d.ref)}</b> via le lien reçu par e-mail —
+    propre à cette demande, à usage limité <span class="muted">(consultation ${d.ouvertures}/${d.max_ouvertures})</span>,
+    inactif dès la clôture. Seuls le n° de dossier et le besoin exprimé vous sont communiqués.</div></div>`;
   let body="";
   if(d.statut==="demande"){
     const uniteLabel=p.unite==="Par jour"?"jours":"heures";
-    const q=parseFloat(String(PRO.devisQty).replace(",",".")), pu=Number(p.prix);
+    const q=parseFloat(String(PROF.devisQty).replace(",","."));
     const ok=!isNaN(q)&&q>0, total=ok?+(q*pu).toFixed(2):null;
     body=`<div>
       <div style="font-weight:800;font-size:14.5px;margin-bottom:12px">Établir le devis</div>
       <div class="row" style="align-items:flex-end">
-        <div class="f" style="flex:0 1 130px"><label>Quantité (${uniteLabel})</label><input class="in" id="p-qty" value="${esc(PRO.devisQty)}" placeholder="ex. 6" style="font-weight:700;font-size:15px"></div>
+        <div class="f" style="flex:0 1 130px"><label>Quantité (${uniteLabel})</label><input class="in" id="p-qty" value="${esc(PROF.devisQty)}" placeholder="ex. 6" style="font-weight:700;font-size:15px"></div>
         <span style="font-size:18px;color:var(--muted);margin-bottom:10px">×</span>
         <div class="f" style="flex:0 1 130px"><label>Tarif unitaire (€)</label><input class="in" value="${esc(String(pu))}" readonly style="font-weight:700;font-size:15px;background:var(--paper)"></div>
         <span style="font-size:18px;color:var(--muted);margin-bottom:10px">=</span>
@@ -1196,27 +1189,28 @@ function viewProDetail(d){
       <div class="f" style="margin-top:12px"><label>Un mot avec votre devis <span class="muted" style="font-weight:500">(facultatif : modalités, délais…)</span></label>
         <textarea class="in" id="p-msg" rows="2" placeholder="ex. Je propose 4 h réparties sur 2 mercredis après-midi." style="resize:vertical"></textarea></div>
       <div class="row" style="margin-top:12px">
-        <button class="btn teal" data-act="p-devis" data-id="${esc(d.id)}" style="flex:1;font-size:14px">Envoyer le devis à ${esc(P_aidant(d.assure_id))}</button>
+        <button class="btn teal" data-act="p-devis" style="flex:1;font-size:14px">Envoyer le devis à l'assuré-aidant</button>
         <button class="btn ghost" data-act="p-decliner-toggle" style="flex:0 0 auto">Décliner…</button>
       </div>
-      ${PRO.motifOpen?`<div style="margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:11px;background:var(--paper)">
+      ${PROF.motifOpen?`<div style="margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:11px;background:var(--paper)">
         <label style="font-size:11px;font-weight:700;color:var(--muted)">Motif du refus (obligatoire — F-60)</label>
         <input class="in" id="p-motif" placeholder="ex. Secteur non couvert actuellement" style="margin-top:4px">
-        <div class="row" style="margin-top:8px"><button class="btn bad" data-act="p-decliner" data-id="${esc(d.id)}">Décliner la demande</button></div></div>`:""}
+        <div class="row" style="margin-top:8px"><button class="btn bad" data-act="p-decliner">Décliner la demande</button></div></div>`:""}
     </div>`;
   } else if(d.statut==="devisé"){
     body=`<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-radius:13px;background:var(--goldLt)">
         <div style="font-size:13px">${d.quantite&&!forfait?`<b>${d.quantite}</b> × ${eur(p.prix)}`:"Forfait"}</div><div style="font-size:20px;font-weight:800;color:var(--goldDk)">${eur(d.total)}</div></div>
-      <div class="muted" style="margin-top:10px;font-size:12px;line-height:1.45">ⓘ En attente d'acceptation. L'acceptation par l'assuré-aidant engage automatiquement le montant sur son PMV (RG-51) — rien n'est engagé avant.</div>`;
+      ${d.message_pro?`<div class="muted" style="margin-top:8px;font-size:12px">Votre mot : « ${esc(d.message_pro)} »</div>`:""}
+      <div class="muted" style="margin-top:10px;font-size:12px;line-height:1.45">ⓘ En attente d'acceptation. L'acceptation par l'assuré-aidant engage automatiquement le montant sur son PMV (RG-51) — vous serez prévenu par e-mail, avec ce même lien.</div>`;
   } else if(d.statut==="engagé"){
     body=`<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:13px;background:var(--purpleLt);flex-wrap:wrap;gap:10px">
-        <div><div style="font-weight:800;font-size:14.5px">${eur(d.total)} engagés — prestation à réaliser</div><div class="muted" style="font-size:12px">La déclaration ouvrira le délai de confirmation de l'assuré-aidant (${(STATE.parametres||{}).delai_confirmation_jours} j).</div></div>
-        <button class="btn teal" data-act="p-realisee" data-id="${esc(d.id)}">Déclarer la prestation réalisée</button></div>`;
+        <div><div style="font-weight:800;font-size:14.5px">${eur(d.total)} engagés — prestation à réaliser</div><div class="muted" style="font-size:12px">La déclaration ouvrira le délai de confirmation de l'assuré-aidant (${delai} j).</div></div>
+        <button class="btn teal" data-act="p-realisee">Déclarer la prestation réalisée</button></div>`;
   } else if(d.statut==="réalisée"){
     body=`<div style="padding:14px 16px;border-radius:13px;background:var(--tealLt)">
       <div style="font-weight:800;font-size:14px">${d.service_fait?"✓ Service fait confirmé":"Déclarée réalisée le "+dateFR(d.date_realisee)}</div>
       <div class="muted" style="font-size:12.5px;margin-top:3px">${d.service_fait
-        ?"En attente du virement du gestionnaire. Pensez à adresser votre facture ("+esc(d.id)+")."
+        ?"En attente du virement du gestionnaire. Pensez à adresser votre facture ("+esc(d.ref)+")."
         :"L'assuré-aidant doit confirmer le service fait avant le "+dateFR(d.echeance_confirmation)+". Aucun paiement automatique : le virement est effectué par le gestionnaire après confirmation (RG-52)."}</div></div>`;
   } else if(d.statut==="payé"){
     const partiel=d.montant_paye&&Number(d.montant_paye)<Number(d.total);
@@ -1229,14 +1223,19 @@ function viewProDetail(d){
   } else {
     body=`<div style="padding:14px 16px;border-radius:13px;background:var(--paper);color:var(--muted)">✕ ${st[1]||st[0]}${d.motif_refus?` — ${esc(d.motif_refus)}`:""}${d.motif_annulation?` — ${esc(d.motif_annulation)}`:""}</div>`;
   }
-  return `<div class="card" style="margin-top:16px">
+  return `<div style="max-width:760px;margin:0 auto">${bandeau}
+    <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div><div style="font-weight:800;font-size:16px">${esc(p.nom||d.prestation_id)}</div>
-        <div class="muted" style="font-size:12.5px">Dossier <b>${esc(d.assure_id)}</b> · ${esc(P_aidant(d.assure_id))} · ${forfait?`forfait ${eur(p.prix)}`:`${eur(p.prix)} / ${p.unite==="Par jour"?"jour":"heure"}`} · réf. ${esc(d.id)}</div></div>
+      <div><div style="font-weight:800;font-size:16px">${esc(p.nom||"")}</div>
+        <div class="muted" style="font-size:12.5px">Dossier <b>${esc(d.dossier)}</b> · ${forfait?`forfait ${eur(p.prix)}`:`${eur(p.prix)} / ${p.unite==="Par jour"?"jour":"heure"}`} · réf. ${esc(d.ref)} · ${esc(d.pro_nom)}</div></div>
       <span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}</span></div>
-    ${d.message?`<div style="font-size:13px;background:var(--paper);border-radius:11px;padding:11px 13px;margin-bottom:14px;line-height:1.45">Besoin exprimé : « ${esc(d.message)} »</div>`:""}
-    ${dvStepper(d)}
-    ${body}</div>`;
+    ${d.besoin?`<div style="font-size:13px;background:var(--paper);border-radius:11px;padding:11px 13px;margin-bottom:14px;line-height:1.45">Besoin exprimé : « ${esc(d.besoin)} »</div>`:""}
+    ${dvStepper({statut:d.statut,motif_refus:d.motif_refus,motif_annulation:d.motif_annulation,motif_contestation:d.motif_contestation})}
+    ${body}</div>
+    <div class="card" style="background:var(--paper)"><div style="font-size:12px;line-height:1.5"><b>Facturation (F-62, hors outil) :</b>
+      adressez votre facture par e-mail à <b>${esc(mail)}</b> en mentionnant le
+      <b>n° de dossier ${esc(d.dossier)}</b> et la <b>référence ${esc(d.ref)}</b>. Le paiement est effectué par virement par le gestionnaire après confirmation
+      du service fait, dans la limite du montant engagé (RG-52, RG-53).</div></div></div>`;
 }
 
 /* ═══════ §8 · Gestionnaire indemnisation (§5 des specs) ═══════ */
@@ -1364,10 +1363,12 @@ function gDossierDetail(a){
   const dvs=(STATE.devis||[]).filter(d=>d.assure_id===a.id);
   const devisBloc=dvs.length?`<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">DEVIS DU DOSSIER</div>
     <div style="display:grid;gap:5px">${dvs.map(d=>{const p=P_presta(d.prestation_id),st=P_ST[d.statut]||["?","","var(--muted)"];
+      const attentePro=(d.statut==="demande"||d.statut==="engagé")&&d.jeton;
       return `<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper);flex-wrap:wrap">
         <b style="white-space:nowrap">${esc(d.id.split("-").pop())}</b><span style="flex:1">${esc(p.nom||"")}</span>
         <span style="white-space:nowrap">${d.total?eur(d.total):"—"}</span>
-        <span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}${d.statut==="réalisée"&&d.service_fait?" · confirmé":""}</span></div>`;}).join("")}</div></div>`:"";
+        <span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}${d.statut==="réalisée"&&d.service_fait?" · confirmé":""}</span>
+        ${attentePro?`<a href="${esc(lienPro(d.jeton))}" target="_blank" rel="noopener" title="Lien sécurisé adressé au professionnel par e-mail (A-1a) — à lui renvoyer si besoin" style="font-size:11px;color:var(--teal);font-weight:700;text-decoration:none">formulaire pro ↗</a>`:""}</div>`;}).join("")}</div></div>`:"";
   const rbs=(STATE.remboursements||[]).filter(r=>r.assure_id===a.id);
   const rembBloc=rbs.length?`<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">REMBOURSEMENTS DU DOSSIER</div>
     <div style="display:grid;gap:5px">${rbs.map(r=>`<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper)">
@@ -1479,6 +1480,12 @@ function gAlertes(){
 }
 
 /* ───── E-mails simulés & Exports (F-24, F-28) ───── */
+function emailCorps(t){
+  return esc(t).replace(/(https?:\/\/[^\s]+|\?(?:pro|dossier)=[A-Za-z0-9_\-]+)/g, m=>{
+    const href=m.indexOf("http")===0?m:(location.origin+location.pathname+m);
+    return `<a href="${href}" target="_blank" rel="noopener" style="color:var(--teal);font-weight:700">${m}</a>`;});
+}
+
 function gEmails(){
   const ems=(GEST.emails||[]);
   if(!GEST.emailsLoaded) return `<div class="card empty">Chargement des e-mails… <button class="btn ghost" data-act="g-emails-load">Charger</button></div>`;
@@ -1489,7 +1496,7 @@ function gEmails(){
       <span class="muted" style="font-size:11px;white-space:nowrap">${esc(e.date)}</span>
       <b style="font-size:12.5px;flex:1">${esc(e.objet)}</b>
       <span class="muted" style="font-size:11.5px">→ ${esc(e.a)}</span></summary>
-    <pre style="margin-top:10px;max-height:180px;white-space:pre-wrap;font-size:11.5px">${esc(e.corps)}</pre></details>`).join("")}</div>`;
+    <pre style="margin-top:10px;max-height:180px;white-space:pre-wrap;font-size:11.5px">${emailCorps(e.corps)}</pre></details>`).join("")}</div>`;
 }
 
 function gExports(){
@@ -1541,7 +1548,6 @@ function gModal(){
 /* ═══════ §9 · Écouteurs d'événements ═══════ */
 document.addEventListener("change", async (e)=>{
   if(e.target.id==="sel-aidant"){ AIDANT_ID=e.target.value; AID=aidSeed(); AID.boundTo=AIDANT_ID; render(); return; }
-  if(e.target.id==="sel-pro"){ PRO_ID=e.target.value; PRO.selId=null; render(); return; }
   if(e.target.id==="a-metier"){ AID.cat.metier=e.target.value; render(); return; }
   if(e.target.id==="a-dept"){ AID.cat.dept=e.target.value; render(); return; }
   if(e.target.id==="ar-file"){
@@ -1562,9 +1568,9 @@ document.addEventListener("input",(e)=>{
   if(e.target.dataset && e.target.dataset.gf!==undefined){ GEST.form[e.target.dataset.gf]=e.target.value; return; }
   if(e.target.id==="g-q"){ GEST.q=e.target.value; render();
     const el=$("#g-q"); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } return; }
-  if(e.target.id==="p-qty"){ PRO.devisQty=e.target.value;
-    const sel=(STATE.devis||[]).find(d=>d.id===PRO.selId); const p=sel?P_presta(sel.prestation_id):null;
-    const q=parseFloat(String(PRO.devisQty).replace(",",".")), pu=p?Number(p.prix):NaN;
+  if(e.target.id==="p-qty"){ PROF.devisQty=e.target.value;
+    const pu=PRO_DATA&&PRO_DATA.prestation?Number(PRO_DATA.prestation.prix):NaN;
+    const q=parseFloat(String(PROF.devisQty).replace(",","."));
     const tot=$("#p-total"); if(tot) tot.textContent=(!isNaN(q)&&q>0&&!isNaN(pu))?eur(+(q*pu).toFixed(2)):"—"; return; }
 });
 
@@ -1575,8 +1581,8 @@ document.addEventListener("click", async (e)=>{
   try{
     /* ── global ── */
     if(act==="role"){ ROLE=b.dataset.role; render(); return; }
-    if(act==="connect"){ API=$("#apiUrl").value.trim().replace(/\/+$/,""); AIDANT_ID=null; PRO_ID=null; AID=aidSeed(); GEST=null; PRO=proSeed(); await refresh(); toast("Connecté"); return; }
-    if(act==="reset"){ await api("POST","/api/reset"); AIDANT_ID=null; PRO_ID=null; AID=aidSeed(); GEST=null; PRO=proSeed(); MODAL=""; await refresh(); toast("État réinitialisé (jeu d'essai V1)"); return; }
+    if(act==="connect"){ API=$("#apiUrl").value.trim().replace(/\/+$/,""); AIDANT_ID=null; AID=aidSeed(); GEST=null; PROF={devisQty:"",motifOpen:false}; await refresh(); toast("Connecté"); return; }
+    if(act==="reset"){ await api("POST","/api/reset"); AIDANT_ID=null; AID=aidSeed(); GEST=null; PROF={devisQty:"",motifOpen:false}; MODAL=""; await refresh(); toast("État réinitialisé (jeu d'essai V1)"); return; }
 
     /* ── assuré-aidant : navigation, contact conseiller (F-52) ── */
     if(act==="a-tab"){ AID.tab=b.dataset.tab; render(); return; }
@@ -1611,7 +1617,8 @@ document.addEventListener("click", async (e)=>{
     if(act==="a-cat-reset"){ AID.cat={famille:"",metier:"",modalite:"",dept:""}; AID.catTitre=""; render(); return; }
     if(act==="a-demander-devis"){ AID.demandePid=(AID.demandePid===b.dataset.pid?null:b.dataset.pid); render(); return; }
     if(act==="a-demander-envoyer"){ const msg=($("#a-dv-msg")&&$("#a-dv-msg").value.trim())||"";
-      await api("POST","/api/devis",{assure_id:AIDANT_ID,prestation_id:b.dataset.pid,message:msg});
+      await api("POST","/api/devis",{assure_id:AIDANT_ID,prestation_id:b.dataset.pid,message:msg,
+        lien_base:location.origin+location.pathname});
       AID.demandePid=null; AID.tab="prestations"; await refresh(); toast("Demande envoyée — le pro reçoit un e-mail avec votre n° de dossier et un lien de chiffrage"); return; }
 
     /* ── Prestations (F-48/F-49) ── */
@@ -1678,20 +1685,19 @@ document.addEventListener("click", async (e)=>{
       await api("POST","/api/assures/"+AIDANT_ID+"/aides/"+b.dataset.id+"/profil",{profil});
       AID.pfdEdit=null; await refresh(); toast("Profil du proche enregistré"); return; }
 
-    /* ── professionnel (F-60/F-61) ── */
-    if(act==="p-select"){ PRO.selId=(PRO.selId===id?null:id); PRO.devisQty=""; PRO.motifOpen=false; render(); return; }
-    if(act==="p-devis"){ const q=parseFloat(String(PRO.devisQty).replace(",","."));
+    /* ── professionnel (F-60/F-61) — toujours via le jeton du lien (A-1a) ── */
+    if(act==="p-devis"){ const q=parseFloat(String(PROF.devisQty).replace(",","."));
       if(isNaN(q)||q<=0){ toast("Indiquez une quantité",true); return; }
       const mp=($("#p-msg")&&$("#p-msg").value.trim())||"";
-      await api("POST",`/api/devis/${id}/etablir`,{quantite:String(q),message_pro:mp});
-      PRO.devisQty=""; await refresh(); toast("Devis envoyé — l'assuré-aidant est notifié par e-mail"); return; }
-    if(act==="p-decliner-toggle"){ PRO.motifOpen=!PRO.motifOpen; render(); return; }
+      await api("POST",`/api/pro/${encodeURIComponent(PRO_JETON)}/etablir`,{quantite:String(q),message_pro:mp});
+      PROF.devisQty=""; await refreshPro(); toast("Devis envoyé — l'assuré-aidant est notifié par e-mail"); return; }
+    if(act==="p-decliner-toggle"){ PROF.motifOpen=!PROF.motifOpen; render(); return; }
     if(act==="p-decliner"){ const m=($("#p-motif")&&$("#p-motif").value.trim())||"";
       if(!m){ toast("Motif obligatoire (F-60)",true); return; }
-      await api("POST",`/api/devis/${id}/refuser-pro`,{motif:m});
-      PRO.motifOpen=false; await refresh(); toast("Demande déclinée"); return; }
-    if(act==="p-realisee"){ await api("POST",`/api/devis/${id}/realisee`);
-      await refresh(); toast("Prestation déclarée réalisée — le délai de confirmation de l'assuré-aidant est ouvert"); return; }
+      await api("POST",`/api/pro/${encodeURIComponent(PRO_JETON)}/refuser`,{motif:m});
+      PROF.motifOpen=false; await refreshPro(); toast("Demande déclinée"); return; }
+    if(act==="p-realisee"){ await api("POST",`/api/pro/${encodeURIComponent(PRO_JETON)}/realisee`);
+      await refreshPro(); toast("Prestation déclarée réalisée — le délai de confirmation de l'assuré-aidant est ouvert"); return; }
 
     /* ── gestionnaire ── */
     if(act==="g-tab"){ GEST.tab=b.dataset.tab; if(b.dataset.tab==="emails"&&!GEST.emailsLoaded){ await chargerEmails(); } render(); return; }
@@ -1776,10 +1782,13 @@ async function chargerEmails(){
   catch(e){ GEST.emails=[]; GEST.emailsLoaded=true; }
 }
 
-/* ── amorçage : lien d'activation ?dossier=GSA-AA-NNNNN (F-40) ── */
+/* ── amorçage : lien d'activation ?dossier=… (F-40) · lien pro ?pro=<jeton> (A-1a) ── */
 (function(){
   try{
-    const m=new URLSearchParams(location.search).get("dossier");
+    const sp=new URLSearchParams(location.search);
+    const j=sp.get("pro");
+    if(j){ PRO_JETON=j; return; }
+    const m=sp.get("dossier");
     if(m){ ROLE="aidant"; AIDANT_ID=m; }
   }catch(_){ }
 })();

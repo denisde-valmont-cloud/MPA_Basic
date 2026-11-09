@@ -38,6 +38,11 @@ def T(label, cond, detail=""):
     print(f"  [{tag}] {N:02d} · {label}" + (f"  — {detail}" if (detail and not cond) else ""))
     if not cond: FAILS.append(label)
 
+def jeton(ref):
+    """A-1a — le jeton du lien pro, lu dans le state (vue gestionnaire)."""
+    _, stx, _ = req("GET", "/api/state")
+    return next(d["jeton"] for d in stx["devis"] if d["id"] == ref)
+
 def pmv(aid):
     _, a, _ = req("GET", f"/api/assures/{aid}")
     e = a["pmv"]
@@ -100,29 +105,52 @@ did = d["id"]
 T("§9 réf. devis dérivée", did == f"{paul}-D01")
 _, emn, _ = req("GET", "/api/emails")
 mail_pro = [e for e in emn["emails"] if did in e["objet"]]
-T("F-47 e-mail au pro : n° dossier + lien + consigne facture", bool(mail_pro) and paul in mail_pro[0]["corps"] and "Lien sécurisé" in mail_pro[0]["corps"])
-c, r, _ = req("POST", f"/api/devis/{did}/etablir", {"quantite": 0})
+jd = jeton(did)
+T("F-47 e-mail au pro : n° dossier + lien ?pro=<jeton> + consigne facture",
+  bool(mail_pro) and paul in mail_pro[0]["corps"] and f"?pro={jd}" in mail_pro[0]["corps"]
+  and "facture" in mail_pro[0]["corps"])
+# — A-1a : le pro n'a PAS de compte — il répond par son lien, qui n'expose que le nécessaire —
+c, pv, _ = req("GET", f"/api/pro/{jd}")
+T("A-1a formulaire pro : n° de dossier + besoin exprimé, RIEN d'autre",
+  c == 200 and pv["dossier"] == paul and pv["besoin"] == "Dossier MDPH, le mercredi."
+  and "pmv" not in pv and "nom_complet" not in json.dumps(pv) and "aides" not in pv)
+c, r, _ = req("GET", "/api/pro/jeton-inconnu")
+T("A-1a jeton inconnu → 404", c == 404)
+c, r, _ = req("POST", f"/api/devis/{did}/etablir", {"quantite": 4})
+T("A-1a l'ancienne route pro sans jeton n'existe plus (404)", c == 404)
+c, r, _ = req("POST", f"/api/pro/{jd}/etablir", {"quantite": 0})
 T("F-60 quantité > 0 exigée", c == 400)
-req("POST", f"/api/devis/{did}/etablir", {"quantite": 4, "message_pro": "OK pour deux mercredis."})
+req("POST", f"/api/pro/{jd}/etablir", {"quantite": 4, "message_pro": "OK pour deux mercredis."})
 avant = pmv(paul)
 c, d, _ = req("POST", f"/api/devis/{did}/accepter")
 apres = pmv(paul)
 T("F-48/RG-51 acceptation = engagement automatique", c == 200 and d["statut"] == "engagé"
   and apres["engage"] - avant["engage"] == Decimal("112.00") and eq_ok(paul))
+_, ema, _ = req("GET", "/api/emails")
+T("A-1a acceptation notifiée au pro (même lien, pour déclarer la réalisation)",
+  any("Devis accepté" in e["objet"] and did in e["objet"] and f"?pro={jd}" in e["corps"] for e in ema["emails"]))
 c, r, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-54", "message": ""})
-big = r["id"]; req("POST", f"/api/devis/{big}/etablir", {"quantite": 9999})
+big = r["id"]; req("POST", f"/api/pro/{jeton(big)}/etablir", {"quantite": 9999})
 c, r, _ = req("POST", f"/api/devis/{big}/accepter")
 T("RG-43 engagement > disponible refusé", c == 400 and "disponible" in r.get("error",""))
 req("POST", f"/api/devis/{big}/refuser")
 _, df, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-27", "message": ""})
 T("F-47 forfait → « devisé » immédiat", df["statut"] == "devisé" and df["total"] == "65.00")
-c, r, _ = req("POST", f"/api/devis/{df['id']}/refuser-pro", {"motif": ""})
+jf = jeton(df["id"])
+c, r, _ = req("POST", f"/api/pro/{jf}/refuser", {"motif": ""})
 T("F-60 refus pro sans motif refusé", c == 400)
-c, r, _ = req("POST", f"/api/devis/{df['id']}/refuser-pro", {"motif": "Agenda complet"})
-T("F-60 décliner avec motif", c == 200 and r["statut"] == "refusé" and "Agenda" in r["motif_refus"])
+c, r, _ = req("POST", f"/api/pro/{jf}/refuser", {"motif": "Agenda complet"})
+T("F-60 décliner avec motif (par jeton)", c == 200 and r["statut"] == "refusé" and "Agenda" in r["motif_refus"])
+c, r, _ = req("GET", f"/api/pro/{jf}")
+T("A-1a demande close : le lien reste consultatif, plus d'action", c == 200 and r["statut"] == "refusé")
+# « usage limité » : plafond de consultations (forcé ici au maximum)
+mpa_api.APP.store.devis[df["id"]].jeton_ouvertures = mpa_core.PRO_LIEN_MAX_OUVERTURES
+c, r, _ = req("GET", f"/api/pro/{jf}")
+T("A-1a plafond d'ouvertures atteint → 410 « lien expiré »", c == 410 and "expiré" in r.get("error",""))
 
 # ── F-61 / F-49 / RG-52 : réalisation, service fait, AUCUN paiement auto ─
-req("POST", f"/api/devis/{did}/realisee")
+c, r, _ = req("POST", f"/api/pro/{jd}/realisee")
+T("F-61 réalisation déclarée par le pro VIA SON LIEN", c == 200 and r["statut"] == "réalisée")
 _, d, _ = req("GET", "/api/state"); dv = next(x for x in d["devis"] if x["id"] == did)
 import datetime
 ech = datetime.date.fromisoformat(dv["echeance_confirmation"]) - datetime.date.fromisoformat(dv["date_realisee"])
@@ -154,8 +182,9 @@ T("F-24 e-mail « virement effectué » à l'assuré-aidant", any("Paiement effe
 
 # ── F-25 annulation → désengagement intégral ─────────────────────────────
 _, d2, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-86", "message": ""})
-d2 = d2["id"]; req("POST", f"/api/devis/{d2}/etablir", {"quantite": 2}); req("POST", f"/api/devis/{d2}/accepter")
-req("POST", f"/api/devis/{d2}/realisee")
+d2 = d2["id"]; j2 = jeton(d2)
+req("POST", f"/api/pro/{j2}/etablir", {"quantite": 2}); req("POST", f"/api/devis/{d2}/accepter")
+req("POST", f"/api/pro/{j2}/realisee")
 avant = pmv(paul)
 c, r, _ = req("POST", f"/api/devis/{d2}/annuler", {"motif": "Prestation non réalisée — pro injoignable"})
 apres = pmv(paul)
@@ -223,9 +252,10 @@ T("F-27 bloqué : remboursement refusé", c == 400)
 # engagement en cours honoré : devis engagé AVANT blocage → réalisée + service fait + payé
 _, d3, _ = req("POST", f"/api/assures/{paul}/debloquer", {"commentaire": "pour préparer le cas"})
 _, d3, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-86", "message": ""})
-d3 = d3["id"]; req("POST", f"/api/devis/{d3}/etablir", {"quantite": 1}); req("POST", f"/api/devis/{d3}/accepter")
+d3 = d3["id"]; j3 = jeton(d3)
+req("POST", f"/api/pro/{j3}/etablir", {"quantite": 1}); req("POST", f"/api/devis/{d3}/accepter")
 req("POST", f"/api/assures/{paul}/bloquer", {"motif": "Nouveau blocage"})
-req("POST", f"/api/devis/{d3}/realisee"); req("POST", f"/api/devis/{d3}/service-fait", {})
+req("POST", f"/api/pro/{j3}/realisee"); req("POST", f"/api/devis/{d3}/service-fait", {})
 c, r, _ = req("POST", f"/api/devis/{d3}/payer", {})
 T("F-27 engagements en cours honorés malgré le blocage", c == 200 and r["statut"] == "payé")
 req("POST", f"/api/assures/{paul}/debloquer", {"commentaire": "Vérification levée"})

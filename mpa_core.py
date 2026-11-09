@@ -9,8 +9,11 @@ un seul Porte-Monnaie Virtuel (PMV) par dossier, trois rôles :
     • Assuré-aidant               -> active son dossier, évalue sa situation,
       choisit un pro, accepte un devis (= engagement automatique), confirme le
       service fait ou conteste, demande des remboursements, contacte un conseiller
-    • Professionnel de l'aidance  -> chiffre ou décline, déclare la réalisation
-      (canal V1 : lien sécurisé reçu par e-mail, sans compte — arbitrage A-1a)
+    • Professionnel de l'aidance  -> PAS DE COMPTE MPA : à chaque demande de
+      devis il reçoit un e-mail (adresse du catalogue) avec le n° de dossier,
+      le besoin exprimé et un LIEN SÉCURISÉ À USAGE LIMITÉ (?pro=<jeton>) vers
+      un formulaire mono-demande : chiffrer ou décliner, puis déclarer la
+      réalisation (arbitrage A-1a)
     • Gestionnaire indemnisation  -> pré-inscrit, crédite, valide les
       remboursements, PAIE MANUELLEMENT (virement banque hors outil puis saisie),
       traite les alertes, bloque/débloque, commente, exporte
@@ -40,7 +43,9 @@ RG-60–63 Orientation : taxonomie fermée ; bilan validé fait foi ; assistant
 
 ARBITRAGES RETENUS POUR CETTE MAQUETTE (§10)
 --------------------------------------------
-A-1 (a) lien sécurisé par e-mail vers le formulaire pro (simulé ici) ;
+A-1 (a) lien sécurisé par e-mail : un jeton aléatoire PAR DEMANDE (?pro=…),
+    limité à PRO_LIEN_MAX_OUVERTURES consultations, inactif dès la clôture
+    (payé/refusé/annulé) — en production : + expiration temporelle ;
 A-2 snapshot catalogue embarqué + AIDANCE_PRO_CATALOGUE_URL (repli auto) ;
 A-3 délai de confirmation = DELAI_CONFIRMATION_JOURS (7 j, paramétrable) ;
 A-4 n° de dossier sans clé de contrôle (format GSA-AA-NNNNN, §9) ;
@@ -59,6 +64,7 @@ from typing import Optional, List, Dict
 import datetime
 import itertools
 import json
+import secrets
 import os
 import sys
 import urllib.request
@@ -69,6 +75,7 @@ import urllib.request
 # ╚══════════════════════════════════════════════════════════════════════╝
 DELAI_CONFIRMATION_JOURS = 7          # A-3 : 7 retenu par défaut (ou 10), paramétrable
 EMAIL_GESTION = "gsa@assur-aidant.com"   # §9 / F-62 : destinataire des factures pros
+PRO_LIEN_MAX_OUVERTURES = 40          # A-1a : « usage limité » — plafond de consultations
 REFERENCES_CONTRAT = [                 # référence contrat (gestion des contrats HORS outil)
     "GSA-2026-0001 — Branche détaillants en chaussures",
     "GSA-2026-0002 — Branche de l'édition",
@@ -340,6 +347,8 @@ class Devis:
     montant_paye: Optional[Decimal] = None   # F-22 — partiel possible
     date_paiement: str = ""
     commentaire_paiement: str = ""
+    jeton: str = ""                   # A-1a — lien sécurisé pro, propre à la demande
+    jeton_ouvertures: int = 0         # consultations (plafond PRO_LIEN_MAX_OUVERTURES)
 
 
 @dataclass
@@ -372,6 +381,7 @@ class Store:
         self.remboursements: Dict[str, Remboursement] = {}
         self.contacts: List[Contact] = []               # F-52
         self.emails: List[Email] = []                   # notifications simulées
+        self.lien_base: str = ""                        # base des liens (?dossier= / ?pro=)
         self._seq_dossier: Dict[int, int] = {}          # §9 : séquence par année
 
     def pmv(self, assure_id: str) -> Enveloppe:
@@ -385,6 +395,14 @@ class Store:
 
     def email(self, a: str, objet: str, corps: str):
         self.emails.append(Email(_now(), a, objet, corps))
+
+
+def devis_par_jeton(store: Store, jeton: str) -> Optional[Devis]:
+    """A-1a — résout le lien sécurisé pro. Jeton vide/inconnu -> None."""
+    j = (jeton or "").strip()
+    if not j:
+        return None
+    return next((d for d in store.devis.values() if d.jeton == j), None)
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -472,7 +490,9 @@ class MoteurDossiers:
         self.s.enveloppes[a.id] = env
         env.crediter(montant, "Crédit initial", commentaire, "gestionnaire")
 
-        lien = f"{lien_base or ''}?dossier={a.id}"
+        if (lien_base or "").strip():
+            self.s.lien_base = lien_base.strip()
+        lien = f"{self.s.lien_base}?dossier={a.id}"
         self.s.email(a.email, f"[MPA] Activez votre espace — dossier {a.id}",
                      f"Bonjour {a.prenom},\n\nVotre garantie GSA est ouverte. "
                      f"Votre n° de dossier : {a.id} (à communiquer aux professionnels).\n"
@@ -583,8 +603,17 @@ class MoteurDevis:
         a.seq_devis += 1
         return f"{a.id}-D{a.seq_devis:02d}"
 
+    def _lien_pro(self, d: "Devis") -> str:
+        """A-1a — lien sécurisé à usage limité vers le formulaire mono-demande."""
+        return f"{self.s.lien_base}?pro={d.jeton}"
+
     # — F-47 : demande (message libre) ; forfait → devisé ; e-mail + lien au pro —
-    def demander(self, assure_id, prestation_id, message="") -> Devis:
+    def demander(self, assure_id, prestation_id, message="", lien_base="") -> Devis:
+        if (lien_base or "").strip():
+            self.s.lien_base = lien_base.strip()
+        return self._demander(assure_id, prestation_id, message)
+
+    def _demander(self, assure_id, prestation_id, message="") -> Devis:
         a = self.s.assures.get(assure_id)
         if a is None:
             raise KeyError(f"Dossier introuvable : {assure_id}")
@@ -593,7 +622,8 @@ class MoteurDevis:
             raise ValueError(_b)
         p = self.s.prestations[prestation_id]
         d = Devis(self._ref(a), assure_id, prestation_id, p.pro_id,
-                  statut="demande", message=(message or "").strip())
+                  statut="demande", message=(message or "").strip(),
+                  jeton=secrets.token_urlsafe(9))     # A-1a : un jeton PAR demande
         if p.forfait:                       # forfait à prix fixe : devisé immédiatement
             d.quantite = D(1)
             d.total = p.prix
@@ -602,8 +632,10 @@ class MoteurDevis:
         pro = self.s.pros[p.pro_id]
         self.s.email(pro.email or f"{pro.nom} (adresse du catalogue aidance-pro)",
                      f"[MPA] Demande de devis {d.id} — dossier {a.id}",
-                     f"Prestation : {p.nom}\nBesoin exprimé : {d.message or '(non précisé)'}\n"
-                     f"Lien sécurisé de chiffrage (usage limité) : /pro?devis={d.id}\n"
+                     f"Prestation : {p.nom}\nN° de dossier : {a.id}\n"
+                     f"Besoin exprimé : {d.message or '(non précisé)'}\n"
+                     f"Répondez (chiffrage ou refus) via votre lien sécurisé à usage limité,\n"
+                     f"sans création de compte : {self._lien_pro(d)}\n"
                      f"Rappel : la facture sera à adresser à {EMAIL_GESTION} en mentionnant "
                      f"le n° de dossier {a.id} et la référence {d.id}.")
         return d
@@ -651,6 +683,12 @@ class MoteurDevis:
         env = self.s.pmv(d.assure_id)
         env.engager(d.total, f"Engagement — {p.nom}", d.id, "assuré-aidant")
         d.statut = "engagé"
+        pro = self.s.pros[d.pro_id]
+        self.s.email(pro.email or f"{pro.nom} (adresse du catalogue aidance-pro)",
+                     f"[MPA] Devis accepté — {d.id}",
+                     f"Votre devis ({eur(d.total)}) est accepté : la prestation peut être "
+                     f"réalisée.\nDéclarez la réalisation via votre lien sécurisé : "
+                     f"{self._lien_pro(d)}")
         return d
 
     def refuser(self, devis_id) -> Devis:       # F-48 (aidant)
@@ -659,6 +697,11 @@ class MoteurDevis:
             raise ValueError(f"Refus impossible : devis « {d.statut} ».")
         d.statut = "refusé"
         d.motif_refus = d.motif_refus or "Refusé par l'assuré-aidant"
+        pro = self.s.pros[d.pro_id]
+        self.s.email(pro.email or f"{pro.nom} (adresse du catalogue aidance-pro)",
+                     f"[MPA] Demande close — {d.id}",
+                     "L'assuré-aidant n'a pas donné suite à votre devis. "
+                     "Aucune action attendue de votre part.")
         return d
 
     # — F-61 : le pro déclare la réalisation → ouvre le délai (A-3) —
