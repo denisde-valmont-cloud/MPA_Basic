@@ -16,10 +16,10 @@ bancaires, les rejets, le renouvellement et le reporting assureur sont **hors ou
 | 4 rôles (dont console contrats + reporting) | **3 rôles** — contrats/barèmes hors outil ; la pré-inscription porte une simple *référence contrat* et un **crédit initial en saisie libre** (F-20) |
 | Paiement automatique à la double validation + bordereau SEPA pain.001 | **Paiement = acte manuel du gestionnaire** (RG-52), **en deux temps** : il marque payé — unitaire, **partiel** (RG-53, reliquat → disponible) ou **en lot** — ce qui notifie l'assuré-aidant (F-24, avec la référence de virement) et **génère un bordereau de virement groupé par bénéficiaire** (BRD-AA-NNN : pro → coordonnées sur facture F-62 ; assuré → IBAN du dossier) ; il **exécute ensuite le bordereau à sa banque** (hors outil) et le marque **exécuté** (réconciliation) |
 | Onglet « Remboursements » mêlant instruction et paiement | **« Demandes de remboursement »** : l'instruction seule, **groupée par dossier** (nom de l'assuré + solde / engagé / disponible du PMV en tête de groupe) ; une demande **validée bascule dans « Paiements à effectuer »**, file **groupée par bénéficiaire** |
-| Libération automatique J+7 | **Aucune libération automatique** : à l'échéance du délai (A-3), **alerte** au gestionnaire (F-70), qui confirme pour le compte / paie partiellement / annule, motif obligatoire (F-25) |
+| Déclaration de réalisation (pro) puis confirmation du service fait (assuré-aidant), libération à J+7 | **Ni l'une ni l'autre** : à l'acceptation, le pro reçoit les informations à porter sur sa facture ; **la réception de la facture, enregistrée par le gestionnaire (« Facture reçue »), vaut validation de la prestation** (RG-45, confiance dans le réseau) et met la ligne en file de paiement. Litiges réglés par le gestionnaire : annulation motivée (désengagement intégral) ou paiement partiel (F-25). Vigilances F-70 : **facture attendue** au-delà de 30 j (A-3 recyclé) et **bordereau non exécuté** au-delà de 3 j (A-7) |
 | PMV 3 compartiments | **5 chiffres + 2 équations** affichées : crédit cumulé − payé = solde ; solde − engagé = disponible (F-43) |
 | Écran « Pro » permanent (3e rôle dans l'en-tête) | **Pas de compte pro** : un **jeton par demande** dans l'e-mail simulé ouvre un **formulaire mono-demande** (`/?pro=<jeton>` → `GET /api/pro/<jeton>`, **minimisé** : n° de dossier + besoin exprimé + prestation — jamais l'identité de l'aidant ni le PMV) ; chiffrer/décliner puis déclarer la réalisation ; plafond d'ouvertures, lien consultatif après clôture |
-| — | **Contestation** du service fait (F-49), **blocage/déblocage** du PMV (F-27, RG-50), **n° de dossier GSA-AA-NNNNN** (§9) avec références dérivées -Dnn/-Rnn, **contact conseiller** (F-52), **commentaires du gestionnaire** sur chaque mouvement (F-26), **justificatif réellement déposé et consultable** (F-51), **exports CSV** (F-28), **e-mails simulés** journalisés |
+| — | **Blocage/déblocage** du PMV (F-27, RG-50), **n° de dossier GSA-AA-NNNNN** (§9) avec références dérivées -Dnn/-Rnn, **contact conseiller** (F-52), **commentaires du gestionnaire** sur chaque mouvement (F-26), **justificatif réellement déposé et consultable** (F-51), **exports CSV** (F-28), **e-mails simulés** journalisés |
 
 ## Fichiers
 
@@ -34,7 +34,7 @@ mpa_demo.html   Shell (HTML/JS sans dépendance) : 2 espaces + formulaire pro
                 par lien, sommaire §1–§9.
 nonreg_v1.py    LA SPÉCIFICATION EXÉCUTABLE : 83 vérifications rejouant chaque
                 exigence F-xx/RG-xx de bout en bout.  python3 nonreg_v1.py
-render_v1.py    Harness de rendu : 41 vues des 3 profils d'usage sur le jeu
+render_v1.py    Harness de rendu : 39 vues des 3 profils d'usage sur le jeu
                 d'essai réel + replis IA (requiert node).
 Procfile, render.yaml, requirements.txt : inchangés.
 ```
@@ -52,7 +52,7 @@ Procfile, render.yaml, requirements.txt : inchangés.
 | F-45/RG-60/63 | `/api/anticiper2`, taxonomie fermée 9 catégories, retenir/écarter → « Mon parcours » ; repli déterministe | 76 + harness |
 | F-46 | Catégories retenues → liste **complète** filtrée (tri premium→labellisé→autre, 3 facettes) ; catalogue libre | harness |
 | F-47/F-48/RG-51 | `demander` (message, **e-mail au pro avec `?pro=<jeton>`**, forfait→devisé, verrous), `accepter` = **engagement automatique**, garde disponible | 16–17, 21–25 |
-| F-49/F-61 | `declarer_realisee` **par le pro via son lien** → échéance (A-3) ; `confirmer_service_fait` (**aucun paiement auto**) ; `contester` (commentaire) | 30–37 |
+| RG-45 (remplace F-49/F-61) | `facture_recue` (gestionnaire) : **la réception de la facture vaut validation** → file des paiements ; e-mail d'acceptation = infos de facturation ; étapes réalisation/service fait **supprimées** (404) ; alerte « facture attendue » (A-3) | 30–37 |
 | F-50 | Fil d'avancement par devis (demandé→devisé→engagé→réalisé→payé) + délai + actions prioritaires à l'accueil | harness |
 | F-51 | Dépôt **réel** du justificatif (PDF/image, dataURL) ; consultable par le gestionnaire (`GET …/justificatif`) | 43–45 |
 | F-52 | `contacter` (appel/rappel/message/rendez-vous, aucun chatbot) — bouton permanent, visible au dossier gestionnaire | 72–73 |
@@ -61,7 +61,7 @@ Procfile, render.yaml, requirements.txt : inchangés.
 | F-22/RG-52/RG-53 | `payer_lot` : tout passage en payé (unitaire, partiel → reliquat recrédité, ou lot `/api/paiements`) **génère un bordereau par bénéficiaire** ; `executer_bordereau` trace le passage en banque ; file **groupée par bénéficiaire** | 32, 38–41, 51–59 |
 | F-23/RG-44 | `valider` (**partiel automatique** = min(demandé, disponible), **engage**, bascule en file des paiements), `refuser` (motif), `demander_piece`/`redeposer`, `marquer_payee` via bordereau | 47–50 |
 | F-24 | E-mails automatiques (demande au pro, acceptation, paiement **avec référence du bordereau**, validation partielle, refus) — **simulés**, journal consultable, **liens cliquables** | 40–41 + onglet E-mails |
-| F-25 | Alertes : confirmer pour compte (motif), payer partiellement, annuler (désengagement intégral) | 35–37, 42 |
+| F-25 | Règlement des litiges par le gestionnaire : **annuler** (motif, désengagement intégral) un devis engagé ou facturé ; **paiement partiel** (RG-53) ; actions directes sur les alertes | 39, 42 |
 | F-26 | `commenter_mouvement` — visible par l'assuré-aidant dans son historique | 69 |
 | F-27/RG-50 | `bloquer`/`debloquer` (motif) ; engagements en cours honorés ; consultation/orientation accessibles | 64–68 |
 | F-28 | `GET /api/exports/{dossiers,mouvements,devis,remboursements,bordereaux}.csv` | 59, 74 |
@@ -74,7 +74,7 @@ Procfile, render.yaml, requirements.txt : inchangés.
 outillé : **un jeton aléatoire par demande** (`?pro=<jeton>`), plafond d'ouvertures
 (`PRO_LIEN_MAX_OUVERTURES`), consultatif dès la clôture — en production : ajouter
 une expiration temporelle · A-2 : snapshot + variable d'environnement ·
-A-3 : `DELAI_CONFIRMATION_JOURS = 7` (paramètre) · A-4 : sans clé de contrôle ·
+A-3 (recyclé) : `DELAI_FACTURE_JOURS = 30` (alerte facture attendue) · A-7 : `DELAI_BORDEREAU_JOURS = 3` (alerte bordereau non exécuté) · A-4 : sans clé de contrôle ·
 A-5 : paiement partiel décidé par le gestionnaire (F-25).
 
 ## Mon baromètre aidant (tableau de bord de l'assuré-aidant)
@@ -90,7 +90,7 @@ inspiré des auto-diagnostics associatifs, sans reprise de leurs contenus).
   profils déjà saisis — aucune nouvelle question ; chaque dimension affiche « ce qui
   pèse ▲ / vos appuis ▽ ».
 - **Il s'affine avec l'usage du PMV** : services réellement mobilisés (famille
-  dominante de chaque prestation engagée/réalisée/payée), remboursements couverts,
+  dominante de chaque prestation engagée/facturée/payée), remboursements couverts,
   demandes rapprochées, contestation en cours, contact conseiller, et non-recours
   (forte charge déclarée sans aucun service). Ces signaux sont **bornés à ±10 points
   par dimension** (le déclaratif domine) et **toujours affichés en clair** — un outil
@@ -137,8 +137,8 @@ déploiement : « Réinitialiser » dans le shell.
 ## Règle d'or pour toute évolution
 
 Toute modification doit laisser `nonreg_v1.py` (83 vérifications) et `render_v1.py`
-(41 vues, 57 assertions) **verts** — c'est ainsi que cette V1 a été validée, en plus
+(39 vues, 59 assertions) **verts** — c'est ainsi que cette V1 a été validée, en plus
 de deux parcours complets en navigateur réel (Playwright) : le circuit pro par
-lien (demande → e-mail → chiffrage → acceptation → réalisation → service fait →
-file de paiement) et le circuit gestionnaire (instruction groupée par dossier →
-validation → file par bénéficiaire → bordereau → exécution en banque).
+lien (demande → e-mail → chiffrage → acceptation → consigne de facturation →
+facture reçue → file de paiement) et le circuit gestionnaire (instruction groupée
+par dossier → validation → file par bénéficiaire → bordereau → exécution en banque).

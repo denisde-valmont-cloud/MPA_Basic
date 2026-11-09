@@ -127,7 +127,7 @@ apres = pmv(paul)
 T("F-48/RG-51 acceptation = engagement automatique", c == 200 and d["statut"] == "engagé"
   and apres["engage"] - avant["engage"] == Decimal("112.00") and eq_ok(paul))
 _, ema, _ = req("GET", "/api/emails")
-T("A-1a acceptation notifiée au pro (même lien, pour déclarer la réalisation)",
+T("A-1a acceptation notifiée au pro (même lien, pour le suivi)",
   any("Devis accepté" in e["objet"] and did in e["objet"] and f"?pro={jd}" in e["corps"] for e in ema["emails"]))
 c, r, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-54", "message": ""})
 big = r["id"]; req("POST", f"/api/pro/{jeton(big)}/etablir", {"quantite": 9999})
@@ -148,26 +148,33 @@ mpa_api.APP.store.devis[df["id"]].jeton_ouvertures = mpa_core.PRO_LIEN_MAX_OUVER
 c, r, _ = req("GET", f"/api/pro/{jf}")
 T("A-1a plafond d'ouvertures atteint → 410 « lien expiré »", c == 410 and "expiré" in r.get("error",""))
 
-# ── F-61 / F-49 / RG-52 : réalisation, service fait, AUCUN paiement auto ─
-c, r, _ = req("POST", f"/api/pro/{jd}/realisee")
-T("F-61 réalisation déclarée par le pro VIA SON LIEN", c == 200 and r["statut"] == "réalisée")
-_, d, _ = req("GET", "/api/state"); dv = next(x for x in d["devis"] if x["id"] == did)
+# ── RG-45 / RG-52 : la réception de la FACTURE vaut validation ───────────
 import datetime
-ech = datetime.date.fromisoformat(dv["echeance_confirmation"]) - datetime.date.fromisoformat(dv["date_realisee"])
-T("F-61 échéance = réalisation + délai (A-3)", ech.days == mpa_core.DELAI_CONFIRMATION_JOURS)
-c, r, _ = req("POST", f"/api/devis/{did}/payer", {})
-T("RG-52 paiement refusé sans service fait", c == 400 and "RG-52" in r.get("error",""))
-c, r, _ = req("POST", f"/api/devis/{did}/contester", {"motif": ""})
-T("F-49 contestation sans commentaire refusée", c == 400)
-req("POST", f"/api/devis/{did}/contester", {"motif": "Deux heures seulement ont été assurées."})
+_, emx, _ = req("GET", "/api/emails")
+T("RG-45 e-mail d'acceptation au pro = infos de facturation (vaut validation)",
+  any("à facturer" in e["objet"] and did in e["objet"]
+      and "vaut validation" in e["corps"] and mpa_core.EMAIL_GESTION in e["corps"]
+      and did in e["corps"] and paul in e["corps"] for e in emx["emails"]))
+c, r, _ = req("POST", f"/api/pro/{jd}/realisee")
+T("RG-45 l'étape « réalisation » n'existe plus (ni pour le pro)", c == 404)
 c, r, _ = req("POST", f"/api/devis/{did}/service-fait", {})
-T("F-49 devis contesté : l'assuré-aidant ne peut plus confirmer seul", c == 400)
+T("RG-45 l'étape « service fait » n'existe plus", c == 404)
+c, r, _ = req("POST", f"/api/devis/{did}/payer", {})
+T("RG-52 paiement refusé AVANT réception de la facture", c == 400 and "RG-52" in r.get("error",""))
+# alerte « facture attendue » (A-3) : engagé depuis plus de DELAI_FACTURE_JOURS
+mpa_api.APP.store.devis[did].date_engagement = (
+    datetime.date.today() - datetime.timedelta(days=mpa_core.DELAI_FACTURE_JOURS + 2)).isoformat()
 _, al, _ = req("GET", "/api/alertes")
-T("F-25 contestation dans les alertes", any(x["type"] == "contestation" and x["devis_id"] == did for x in al["alertes"]))
-c, r, _ = req("POST", f"/api/devis/{did}/service-fait", {"par": "gestionnaire", "motif": ""})
-T("F-25 décision gestionnaire sans motif refusée", c == 400)
-c, r, _ = req("POST", f"/api/devis/{did}/service-fait", {"par": "gestionnaire", "motif": "Accord trouvé au téléphone le 06/11"})
-T("F-25 confirmation pour le compte (motif tracé)", c == 200 and r["service_fait"] and "gestionnaire" in r["confirme_par"])
+T("F-70/A-3 alerte « facture attendue » au-delà du délai",
+  any(x["type"] == "facture_attendue" and x["devis_id"] == did for x in al["alertes"]))
+c, r, _ = req("POST", f"/api/devis/{did}/facture-recue", {})
+T("RG-45 facture reçue (gestionnaire) = VALIDATION → file des paiements",
+  c == 200 and r["statut"] == "facturée" and r["date_facture"])
+c, r2, _ = req("POST", f"/api/devis/{did}/facture-recue", {})
+T("RG-45 double réception refusée", c == 400)
+_, al, _ = req("GET", "/api/alertes")
+T("F-70 l'alerte tombe une fois la facture reçue",
+  not any(x.get("devis_id") == did for x in al["alertes"]))
 mid = pmv(paul)
 c, r, _ = req("POST", f"/api/devis/{did}/payer", {"montant": "9999"})
 T("RG-53 paiement > engagé refusé", c == 400 and "RG-53" in r.get("error",""))
@@ -186,11 +193,10 @@ T("RG-52 l'e-mail F-24 porte la référence du bordereau",
 _, d2, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-86", "message": ""})
 d2 = d2["id"]; j2 = jeton(d2)
 req("POST", f"/api/pro/{j2}/etablir", {"quantite": 2}); req("POST", f"/api/devis/{d2}/accepter")
-req("POST", f"/api/pro/{j2}/realisee")
 avant = pmv(paul)
 c, r, _ = req("POST", f"/api/devis/{d2}/annuler", {"motif": "Prestation non réalisée — pro injoignable"})
 apres = pmv(paul)
-T("F-25 annulation : désengagement intégral", c == 200 and r["statut"] == "annulé"
+T("F-25 annulation d'un devis ENGAGÉ (litige) : désengagement intégral", c == 200 and r["statut"] == "annulé"
   and apres["disponible"] - avant["disponible"] == Decimal("56.00") and eq_ok(paul))
 
 # ── F-51 / F-23 / RG-44 : remboursements ─────────────────────────────────
@@ -223,7 +229,7 @@ c2, r2, _ = req("POST", f"/api/remboursements/{r['id']}/refuser", {"motif": "x"}
 T("§7.2 refus impossible après validation", c2 == 400)
 
 # ── F-22/F-23 : marquage de PLUSIEURS paiements en une fois (seed Claire) ─
-fileP = [d["id"] for d in st["devis"] if d["statut"] == "réalisée" and d["service_fait"]]
+fileP = [d["id"] for d in st["devis"] if d["statut"] == "facturée"]
 fileR = [x["id"] for x in st["remboursements"] if x["statut"] == "validée"]
 c, lot, _ = req("POST", "/api/paiements", {"devis": fileP, "remboursements": fileR, "commentaire": "Virements CERA"})
 T("F-22/23 marquage en lot", c == 200 and len(lot["payes"]) == len(fileP) + len(fileR) and not lot["erreurs"] and eq_ok(cla["id"]))
@@ -275,13 +281,13 @@ c, r, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-86"
 T("F-27 bloqué : nouveau devis refusé", c == 400 and "bloqué" in r.get("error",""))
 c, r, _ = req("POST", "/api/remboursements", {"assure_id": paul, "libelle": "x", "motif": "x", "montant": "5", "justificatif_nom": "x.svg"})
 T("F-27 bloqué : remboursement refusé", c == 400)
-# engagement en cours honoré : devis engagé AVANT blocage → réalisée + service fait + payé
+# engagement en cours honoré : devis engagé AVANT blocage → facture reçue + payé
 _, d3, _ = req("POST", f"/api/assures/{paul}/debloquer", {"commentaire": "pour préparer le cas"})
 _, d3, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-86", "message": ""})
 d3 = d3["id"]; j3 = jeton(d3)
 req("POST", f"/api/pro/{j3}/etablir", {"quantite": 1}); req("POST", f"/api/devis/{d3}/accepter")
 req("POST", f"/api/assures/{paul}/bloquer", {"motif": "Nouveau blocage"})
-req("POST", f"/api/pro/{j3}/realisee"); req("POST", f"/api/devis/{d3}/service-fait", {})
+req("POST", f"/api/devis/{d3}/facture-recue", {})
 c, r, _ = req("POST", f"/api/devis/{d3}/payer", {})
 T("F-27 engagements en cours honorés malgré le blocage", c == 200 and r["statut"] == "payé")
 req("POST", f"/api/assures/{paul}/debloquer", {"commentaire": "Vérification levée"})
@@ -292,11 +298,12 @@ mv = a["pmv"]["mouvements"][0]["id"]
 c, r, _ = req("POST", f"/api/assures/{paul}/mouvements/{mv}/commenter", {"commentaire": "Crédit validé par le comité du 05/11"})
 T("F-26 commentaire visible dans le journal", c == 200 and r["pmv"]["mouvements"][0]["commentaire"].startswith("Crédit validé"))
 
-# ── F-70 : alerte délai (seed D03) + tâche quotidienne ───────────────────
+# ── F-70 : alerte facture attendue (seed D03) + tâche quotidienne ────────
 _, al, _ = req("GET", "/api/alertes")
-T("F-70 alerte « délai expiré » (seed D03) — aucune libération auto",
-  any(x["type"] == "delai_expire" for x in al["alertes"])
-  and all(dd["statut"] != "payé" or dd["service_fait"] for dd in req("GET","/api/state")[1]["devis"]))
+T("F-70 alerte « facture attendue » (seed D03) — aucune action auto",
+  any(x["type"] == "facture_attendue" and x["devis_id"].endswith("D03") for x in al["alertes"])
+  and all(dd["statut"] != "payé" or dd["date_facture"] or dd["bordereau_id"]
+          for dd in req("GET","/api/state")[1]["devis"]))
 c, t, _ = req("POST", "/api/tache-quotidienne")
 T("F-70 tâche quotidienne exécutable", c == 200 and "alerte" in t["message"])
 

@@ -19,7 +19,7 @@ Table des routes
   GET  /api/diag[?ping=1]                       diagnostic (clé LLM, catalogue)
   GET  /api/catalogue                           pros + prestations + départements
   GET  /api/assures/<n° dossier>                un dossier + journal PMV
-  GET  /api/alertes                             F-25/F-70 : délais expirés, contestations
+  GET  /api/alertes                             F-25/F-70 : factures attendues, bordereaux non exécutés
   GET  /api/emails                              notifications e-mail SIMULÉES
   GET  /api/exports/<quoi>.csv                  F-28 : dossiers|mouvements|devis|remboursements|bordereaux
   GET  /api/remboursements/<réf>/justificatif   F-51 : pièce déposée (PDF/image)
@@ -38,12 +38,11 @@ Table des routes
                                                 les ouvertures, plafond « usage limité »)
   POST /api/pro/<jeton>/etablir                 F-60 {quantite, message_pro}
   POST /api/pro/<jeton>/refuser                 F-60 {motif}
-  POST /api/pro/<jeton>/realisee                F-61 — ouvre le délai A-3
+
   POST /api/devis                               F-47 {assure_id, prestation_id, message, lien_base?}
   POST /api/devis/<réf>/accepter                F-48 = engagement automatique (RG-51)
   POST /api/devis/<réf>/refuser                 F-48 (assuré-aidant)
-  POST /api/devis/<réf>/service-fait            F-49 {par?, motif?} (gestionnaire : F-25)
-  POST /api/devis/<réf>/contester               F-49 {motif}
+  POST /api/devis/<réf>/facture-recue           RG-45 : réception facture = VALIDATION (gestionnaire)
   POST /api/devis/<réf>/payer                   F-22 {montant?, commentaire?} — MANUEL (RG-52/53)
   POST /api/devis/<réf>/annuler                 F-25 {motif} — désengagement intégral
   POST /api/paiements                           F-22/F-23 marquage EN LOT → UN bordereau par
@@ -148,10 +147,8 @@ def pro_view(d, store):
         "quantite": str(d.quantite) if d.quantite is not None else None,
         "total": str(d.total) if d.total is not None else None,
         "date_demande": d.date_demande,
-        "date_realisee": d.date_realisee,
-        "echeance_confirmation": d.echeance_confirmation,
-        "service_fait": d.service_fait,
-        "motif_contestation": d.motif_contestation,
+        "date_engagement": d.date_engagement,
+        "date_facture": d.date_facture,
         "motif_refus": d.motif_refus,
         "motif_annulation": d.motif_annulation,
         "montant_paye": str(d.montant_paye) if d.montant_paye is not None else None,
@@ -167,7 +164,6 @@ def pro_view(d, store):
         "ouvertures": d.jeton_ouvertures,
         "max_ouvertures": core.PRO_LIEN_MAX_OUVERTURES,
         "parametres": {
-            "delai_confirmation_jours": core.DELAI_CONFIRMATION_JOURS,
             "email_gestion": core.EMAIL_GESTION,
         },
     }
@@ -203,7 +199,8 @@ def state_snapshot(s):
     return {
         "app": "MPA — V1 (specs V1.1 du 06/11/2026)",
         "parametres": {
-            "delai_confirmation_jours": core.DELAI_CONFIRMATION_JOURS,      # A-3
+            "delai_facture_jours": core.DELAI_FACTURE_JOURS,                # A-3 (recyclé)
+            "delai_bordereau_jours": core.DELAI_BORDEREAU_JOURS,            # A-7
             "references_contrat": core.REFERENCES_CONTRAT,
             "email_gestion": core.EMAIL_GESTION,
         },
@@ -308,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
                     "assistant_mode": "llm" if key else "repli déterministe (RG-63)",
                     "catalogue_source": getattr(core, "CATALOGUE_SOURCE", "snapshot"),
                     "catalogue_lignes": len(getattr(core, "CATALOGUE_ROWS", [])),
-                    "delai_confirmation_jours": core.DELAI_CONFIRMATION_JOURS,
+                    "delai_facture_jours": core.DELAI_FACTURE_JOURS,
                     "astuce": "Ajoutez ?ping=1 pour un vrai test d'appel au modèle.",
                 }
                 if q.get("ping") == "1":
@@ -463,8 +460,6 @@ class Handler(BaseHTTPRequestHandler):
                                               body.get("message_pro", ""))
                     elif action == "refuser":
                         d = APP.devis.refuser_pro(d.id, body.get("motif", ""))
-                    elif action == "realisee":
-                        d = APP.devis.declarer_realisee(d.id)
                     else:
                         return self._err("Action pro inconnue", 404)
                     return self._json(pro_view(d, s))
@@ -484,11 +479,8 @@ class Handler(BaseHTTPRequestHandler):
                         d = APP.devis.accepter(did)
                     elif action == "refuser":
                         d = APP.devis.refuser(did)
-                    elif action == "service-fait":
-                        d = APP.devis.confirmer_service_fait(
-                            did, body.get("par", "assuré-aidant"), body.get("motif", ""))
-                    elif action == "contester":
-                        d = APP.devis.contester(did, body.get("motif", ""))
+                    elif action == "facture-recue":
+                        d = APP.devis.facture_recue(did, body.get("date_facture", ""))
                     elif action == "payer":
                         out = core.payer_lot(
                             s, [{"ref": did, "montant": body.get("montant")}], [],

@@ -7,8 +7,9 @@ Maquette opérationnelle de la V1 « a minima » : un seul état partagé (Store
 un seul Porte-Monnaie Virtuel (PMV) par dossier, trois rôles :
 
     • Assuré-aidant               -> active son dossier, évalue sa situation,
-      choisit un pro, accepte un devis (= engagement automatique), confirme le
-      service fait ou conteste, demande des remboursements, contacte un conseiller
+      choisit un pro, accepte un devis (= engagement automatique — la suite
+      est entre le pro et le gestionnaire : facture puis paiement), demande
+      des remboursements, contacte un conseiller
     • Professionnel de l'aidance  -> PAS DE COMPTE MPA : à chaque demande de
       devis il reçoit un e-mail (adresse du catalogue) avec le n° de dossier,
       le besoin exprimé et un LIEN SÉCURISÉ À USAGE LIMITÉ (?pro=<jeton>) vers
@@ -29,17 +30,19 @@ RG-42   Double verrou du PMV : RIB puis profil du PFD principal.
 RG-43   disponible = solde − engagé ; solde = crédit cumulé − payé ;
         engagement refusé si > disponible ; aucun compartiment négatif.
 RG-44   Remboursement validé au plus à hauteur du disponible (partiel auto).
-RG-45   Cycle devis : demande → devisé (forfait : direct) → engagé → réalisée
-        → service fait → payé.
+RG-45   Cycle devis : demande → devisé (forfait : direct) → engagé → facturée
+        → payé. PAS de confirmation du service par l'assuré-aidant : la
+        RÉCEPTION DE LA FACTURE du pro (hors outil), enregistrée par le
+        gestionnaire, VAUT VALIDATION de la prestation (confiance dans le
+        réseau) ; les litiges sont réglés par le gestionnaire (F-25).
 RG-49   Le PMV ne finance que des dépenses liées à la situation d'aidant.
 RG-50   Un blocage ne retire jamais un crédit acquis.
 RG-51   L'engagement résulte EXCLUSIVEMENT de l'acceptation du devis par
         l'assuré-aidant (clic) ; automatique, sans validation du gestionnaire.
-RG-52   Aucun paiement sans service fait confirmé par l'assuré-aidant, ou
-        décision motivée du gestionnaire après contact. Le paiement est
-        TOUJOURS un acte manuel du gestionnaire : le marquage « payé » dans
-        MPA génère un bordereau de virement par bénéficiaire, exécuté ensuite
-        à la banque (hors outil) puis marqué exécuté dans MPA.
+RG-52   Aucun paiement sans facture reçue (statut « facturée »). Le paiement
+        est TOUJOURS un acte manuel du gestionnaire : le marquage « payé »
+        dans MPA génère un bordereau de virement par bénéficiaire, exécuté
+        ensuite à la banque (hors outil) puis marqué exécuté dans MPA.
 RG-53   Montant payé au pro ≤ montant engagé ; la facture (hors outil) porte
         le n° de dossier et la référence du devis.
 RG-60–63 Orientation : taxonomie fermée ; bilan validé fait foi ; assistant
@@ -51,7 +54,10 @@ A-1 (a) lien sécurisé par e-mail : un jeton aléatoire PAR DEMANDE (?pro=…),
     limité à PRO_LIEN_MAX_OUVERTURES consultations, inactif dès la clôture
     (payé/refusé/annulé) — en production : + expiration temporelle ;
 A-2 snapshot catalogue embarqué + AIDANCE_PRO_CATALOGUE_URL (repli auto) ;
-A-3 délai de confirmation = DELAI_CONFIRMATION_JOURS (7 j, paramétrable) ;
+A-3 (recyclé) délai d'attente de la facture = DELAI_FACTURE_JOURS (30 j,
+    paramétrable) avant alerte « facture attendue » au gestionnaire ;
+A-7 bordereau non exécuté depuis DELAI_BORDEREAU_JOURS (3 j) -> alerte
+    (réconciliation bancaire) ;
 A-4 n° de dossier sans clé de contrôle (format GSA-AA-NNNNN, §9) ;
 A-5 prestation incomplète : paiement partiel décidé par le gestionnaire (F-25).
 
@@ -77,7 +83,8 @@ import urllib.request
 # ╔══════════════════════════════════════════════════════════════════════╗
 # ║  §0 · Paramètres V1                                                   ║
 # ╚══════════════════════════════════════════════════════════════════════╝
-DELAI_CONFIRMATION_JOURS = 7          # A-3 : 7 retenu par défaut (ou 10), paramétrable
+DELAI_FACTURE_JOURS = 30              # A-3 recyclé : alerte « facture attendue »
+DELAI_BORDEREAU_JOURS = 3             # A-7 : alerte « bordereau non exécuté »
 EMAIL_GESTION = "gsa@assur-aidant.com"   # §9 / F-62 : destinataire des factures pros
 PRO_LIEN_MAX_OUVERTURES = 40          # A-1a : « usage limité » — plafond de consultations
 REFERENCES_CONTRAT = [                 # référence contrat (gestion des contrats HORS outil)
@@ -329,8 +336,8 @@ class Prestation:
 
 @dataclass
 class Devis:
-    """Cycle §7.1 : demande · devisé · engagé · réalisée (± service fait) ·
-    contestée · payé · refusé · annulé."""
+    """Cycle §7.1 : demande · devisé · engagé · facturée · payé · refusé ·
+    annulé. La réception de la facture (gestionnaire) vaut validation."""
     id: str                           # GSA-AA-NNNNN-Dnn (§9)
     assure_id: str
     prestation_id: str
@@ -341,11 +348,8 @@ class Devis:
     message: str = ""                 # message de l'assuré-aidant (F-47)
     message_pro: str = ""             # message du pro (F-60)
     date_demande: str = field(default_factory=_today)
-    date_realisee: str = ""           # ouvre le délai de confirmation (F-61)
-    echeance_confirmation: str = ""   # date_realisee + DELAI_CONFIRMATION_JOURS
-    service_fait: bool = False        # F-49 — confirmé (assuré-aidant ou gestionnaire F-25)
-    confirme_par: str = ""            # « assuré-aidant » | « gestionnaire (motif…) »
-    motif_contestation: str = ""      # F-49
+    date_engagement: str = ""         # acceptation de l'assuré-aidant (RG-51)
+    date_facture: str = ""            # réception de la facture = VALIDATION (RG-45)
     motif_refus: str = ""             # F-48 (aidant) / F-60 (pro)
     motif_annulation: str = ""        # F-25
     montant_paye: Optional[Decimal] = None   # F-22 — partiel possible
@@ -713,12 +717,18 @@ class MoteurDevis:
         env = self.s.pmv(d.assure_id)
         env.engager(d.total, f"Engagement — {p.nom}", d.id, "assuré-aidant")
         d.statut = "engagé"
+        d.date_engagement = _today()
         pro = self.s.pros[d.pro_id]
         self.s.email(pro.email or f"{pro.nom} (adresse du catalogue aidance-pro)",
-                     f"[MPA] Devis accepté — {d.id}",
-                     f"Votre devis ({eur(d.total)}) est accepté : la prestation peut être "
-                     f"réalisée.\nDéclarez la réalisation via votre lien sécurisé : "
-                     f"{self._lien_pro(d)}")
+                     f"[MPA] Devis accepté — {d.id} — à facturer après réalisation",
+                     f"Votre devis ({eur(d.total)}) est accepté : la prestation peut être réalisée.\n"
+                     f"Après réalisation, adressez votre facture à {EMAIL_GESTION} en mentionnant :\n"
+                     f"  • le n° de dossier : {d.assure_id}\n"
+                     f"  • la référence du devis : {d.id}\n"
+                     f"  • le montant, au plus égal au montant engagé : {eur(d.total)}\n"
+                     f"La réception de votre facture vaut validation de la prestation et "
+                     f"déclenche le paiement (aucune autre démarche).\n"
+                     f"Suivi de la demande : {self._lien_pro(d)}")
         return d
 
     def refuser(self, devis_id) -> Devis:       # F-48 (aidant)
@@ -734,50 +744,20 @@ class MoteurDevis:
                      "Aucune action attendue de votre part.")
         return d
 
-    # — F-61 : le pro déclare la réalisation → ouvre le délai (A-3) —
-    def declarer_realisee(self, devis_id, date_realisee: str = "") -> Devis:
+    # — RG-45 : la réception de la facture (gestionnaire) VAUT VALIDATION —
+    def facture_recue(self, devis_id, date_facture: str = "") -> Devis:
         d = self.s.devis[devis_id]
         if d.statut != "engagé":
-            raise ValueError(f"Déclaration impossible : devis « {d.statut} ».")
-        d.statut = "réalisée"
-        base = datetime.date.fromisoformat(date_realisee) if date_realisee else datetime.date.today()
-        d.date_realisee = base.isoformat()
-        d.echeance_confirmation = (base + datetime.timedelta(days=DELAI_CONFIRMATION_JOURS)).isoformat()
-        return d
-
-    # — F-49 : service fait (aucun paiement automatique) OU contestation —
-    def confirmer_service_fait(self, devis_id, par="assuré-aidant", motif="") -> Devis:
-        d = self.s.devis[devis_id]
-        if d.statut not in ("réalisée", "contestée"):
-            raise ValueError(f"Confirmation impossible : devis « {d.statut} ».")
-        if d.statut == "contestée" and par != "gestionnaire":
-            raise ValueError("Devis contesté : seule une décision motivée du gestionnaire s'applique (F-25).")
-        if par == "gestionnaire":
-            if not (motif or "").strip():
-                raise ValueError("Motif obligatoire pour une confirmation par le gestionnaire (F-25).")
-            d.confirme_par = f"gestionnaire — {motif.strip()}"
-        else:
-            d.confirme_par = "assuré-aidant"
-        d.statut = "réalisée"
-        d.service_fait = True            # → entre dans la file des paiements (F-22)
-        d.motif_contestation = ""
-        return d
-
-    def contester(self, devis_id, motif) -> Devis:
-        d = self.s.devis[devis_id]
-        if d.statut != "réalisée" or d.service_fait:
-            raise ValueError(f"Contestation impossible : devis « {d.statut} ».")
-        if not (motif or "").strip():
-            raise ValueError("Commentaire obligatoire pour contester (non réalisée / incomplète).")
-        d.statut = "contestée"
-        d.motif_contestation = motif.strip()
+            raise ValueError(f"Réception de facture impossible : devis « {d.statut} ».")
+        d.statut = "facturée"
+        d.date_facture = date_facture or _today()
         return d
 
     # — F-22 / RG-52 / RG-53 : paiement MANUEL, partiel possible, e-mail (F-24) —
     def payer(self, devis_id, montant=None, commentaire="", bordereau="") -> Devis:
         d = self.s.devis[devis_id]
-        if not (d.statut == "réalisée" and d.service_fait):
-            raise ValueError("Paiement impossible : service fait non confirmé (RG-52).")
+        if d.statut != "facturée":
+            raise ValueError("Paiement impossible : facture non reçue (RG-52).")
         m = D(montant) if montant not in (None, "") else d.total
         if m > d.total:
             raise IntegriteError(f"Paiement {eur(m)} > montant engagé {eur(d.total)} (RG-53).")
@@ -804,7 +784,7 @@ class MoteurDevis:
     # — F-25 : annulation par le gestionnaire → désengagement intégral —
     def annuler(self, devis_id, motif) -> Devis:
         d = self.s.devis[devis_id]
-        if d.statut not in ("réalisée", "contestée"):
+        if d.statut not in ("engagé", "facturée"):
             raise ValueError(f"Annulation impossible : devis « {d.statut} ».")
         if not (motif or "").strip():
             raise ValueError("Motif obligatoire pour annuler (F-25).")
@@ -981,17 +961,27 @@ def executer_bordereau(store: Store, bid: str, commentaire="") -> Bordereau:
 # ║  Alertes (F-25) & tâche quotidienne (F-70) — aucune libération auto    ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 def alertes(store: Store) -> List[dict]:
-    """Devis « réalisée » non confirmés à l'échéance + devis contestés."""
+    """F-70 — deux files de vigilance du gestionnaire, AUCUNE action automatique :
+    • facture attendue : devis engagé sans facture depuis plus de
+      DELAI_FACTURE_JOURS (A-3) — relancer le pro, ou annuler (litige, F-25) ;
+    • bordereau non exécuté depuis plus de DELAI_BORDEREAU_JOURS (A-7) —
+      réconciliation bancaire."""
     out = []
-    today = datetime.date.today().isoformat()
+    today = datetime.date.today()
     for d in store.devis.values():
-        if d.statut == "réalisée" and not d.service_fait and d.echeance_confirmation \
-                and d.echeance_confirmation < today:
-            out.append({"type": "delai_expire", "devis_id": d.id, "assure_id": d.assure_id,
-                        "detail": f"Service fait non confirmé — délai expiré le {d.echeance_confirmation}"})
-        elif d.statut == "contestée":
-            out.append({"type": "contestation", "devis_id": d.id, "assure_id": d.assure_id,
-                        "detail": f"Contesté par l'assuré-aidant : {d.motif_contestation}"})
+        if d.statut == "engagé" and d.date_engagement:
+            attente = (today - datetime.date.fromisoformat(d.date_engagement)).days
+            if attente > DELAI_FACTURE_JOURS:
+                out.append({"type": "facture_attendue", "devis_id": d.id, "assure_id": d.assure_id,
+                            "detail": f"Engagé le {d.date_engagement} — aucune facture reçue "
+                                      f"depuis {attente} jours (délai A-3 : {DELAI_FACTURE_JOURS} j)"})
+    for b in store.bordereaux.values():
+        if b.statut == "à exécuter":
+            attente = (today - datetime.date.fromisoformat(b.date)).days
+            if attente > DELAI_BORDEREAU_JOURS:
+                out.append({"type": "bordereau", "bordereau_id": b.id,
+                            "detail": f"Bordereau {b.id} ({eur(b.total)}) généré le {b.date} — "
+                                      f"non exécuté depuis {attente} jours (A-7)"})
     return out
 
 
@@ -1000,9 +990,9 @@ def tache_quotidienne(store: Store) -> dict:
     gestionnaire. Dans la maquette : même calcul, déclenchable à la demande."""
     al = alertes(store)
     return {"date": _now(), "alertes": al,
-            "message": f"{len(al)} alerte(s) : {sum(1 for a in al if a['type']=='delai_expire')} délai(s) "
-                       f"expiré(s), {sum(1 for a in al if a['type']=='contestation')} contestation(s). "
-                       "Aucune libération automatique (F-70)."}
+            "message": f"{len(al)} alerte(s) : {sum(1 for a in al if a['type']=='facture_attendue')} facture(s) "
+                       f"attendue(s), {sum(1 for a in al if a['type']=='bordereau')} bordereau(x) non exécuté(s). "
+                       "Aucune action automatique (F-70)."}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -1030,13 +1020,15 @@ def exporter(store: Store, quoi: str) -> str:
             for m in store.pmv(a.id).mouvements:
                 rows.append([a.id, m.date, m.type, m.montant, m.libelle, m.ref, m.auteur, m.commentaire])
     elif quoi == "devis":
-        rows = [["Reference", "N_dossier", "Prestation", "Professionnel", "Statut", "Service_fait",
-                 "Quantite", "Total", "Montant_paye", "Date_paiement", "Echeance_confirmation"]]
+        rows = [["Reference", "N_dossier", "Prestation", "Professionnel", "Statut",
+                 "Quantite", "Total", "Date_engagement", "Date_facture",
+                 "Montant_paye", "Date_paiement", "Bordereau"]]
         for d in store.devis.values():
             p = store.prestations.get(d.prestation_id)
             rows.append([d.id, d.assure_id, p.nom if p else d.prestation_id,
-                         store.pros[d.pro_id].nom, d.statut, "oui" if d.service_fait else "non",
-                         d.quantite, d.total, d.montant_paye, d.date_paiement, d.echeance_confirmation])
+                         store.pros[d.pro_id].nom, d.statut,
+                         d.quantite, d.total, d.date_engagement, d.date_facture,
+                         d.montant_paye, d.date_paiement, d.bordereau_id])
     elif quoi == "remboursements":
         rows = [["Reference", "N_dossier", "Libelle", "Motif", "Montant_demande",
                  "Montant_valide", "Partiel", "Statut", "Date_paiement", "Justificatif"]]
@@ -1243,7 +1235,7 @@ def barometre(store: Store, assure_id: str) -> Optional[dict]:
         d["_u"] += borne
         d["score"] = max(0, min(100, d["score"] + borne))
         cible = d["pese"] if borne > 0 else d["appuis"]
-        if sum(1 for x in cible if x.startswith(("Vous avez mobilisé", "Vos ", "Le PMV", "Votre PMV")) or "conseiller" in x or "30 jours" in x or "contestée" in x) < 2:
+        if sum(1 for x in cible if x.startswith(("Vous avez mobilisé", "Vos ", "Le PMV", "Votre PMV")) or "conseiller" in x or "30 jours" in x) < 2:
             cible.append(lib)
         d["zone"] = _zone(d["score"])
     for d in dims:
@@ -1297,10 +1289,10 @@ def _signaux_usage(store: Store, assure_id: str) -> dict:
     rembs = [r for r in store.remboursements.values() if r.assure_id == assure_id]
     sig = []
 
-    # 1 · familles de services réellement mobilisées (engagé / réalisée / payé)
+    # 1 · familles de services réellement mobilisées (engagé / facturée / payé)
     familles = []
     for d in reversed(devis):               # consommations récentes d'abord
-        if d.statut not in ("engagé", "réalisée", "payé"):
+        if d.statut not in ("engagé", "facturée", "payé"):
             continue
         p = store.prestations.get(d.prestation_id)
         fam = _famille_dominante(p) if p else None
@@ -1328,9 +1320,6 @@ def _signaux_usage(store: Store, assure_id: str) -> dict:
     if len(recentes) >= 3:
         sig.append(("mentale", 3, f"{len(recentes)} demandes en 30 jours : besoin qui s'intensifie"))
 
-    # 4 · contestation en cours : une friction à résoudre
-    if any(d.statut == "contestée" for d in devis):
-        sig.append(("mentale", 2, "Une prestation contestée est en cours de traitement"))
 
     # 5 · contact conseiller : vous n'êtes pas seul
     if any(c.assure_id == assure_id for c in store.contacts):
@@ -1342,7 +1331,7 @@ def _signaux_usage(store: Store, assure_id: str) -> dict:
         sig.append(("sante", 4, "Votre PMV n'a pas encore servi — il est là pour vous soulager"))
 
     return {"signaux": sig,
-            "resume": {"familles": familles, "nb_services": len([d for d in devis if d.statut in ("engagé", "réalisée", "payé")]),
+            "resume": {"familles": familles, "nb_services": len([d for d in devis if d.statut in ("engagé", "facturée", "payé")]),
                        "nb_rembourses": len(couverts)}}
 
 
@@ -1589,27 +1578,24 @@ def seed() -> Store:
 
     j = lambda n: (datetime.date.today() - datetime.timedelta(days=n)).isoformat()
 
-    # D01 — payé (historique complet : engagement, service fait, paiement saisi)
+    # D01 — payé (historique complet : engagement, facture reçue, bordereau exécuté)
     d1 = mv_.demander(claire.id, "PR-86", "Mise à jour du dossier MDPH de Hugo.")
     mv_.etablir(d1.id, 4, "4 h réparties sur deux mercredis après-midi.")
-    mv_.accepter(d1.id)
-    mv_.declarer_realisee(d1.id, j(12))
-    mv_.confirmer_service_fait(d1.id)
+    mv_.accepter(d1.id); d1.date_engagement = j(12)
+    mv_.facture_recue(d1.id, j(4))
     _lot = payer_lot(s, [d1.id], [], commentaire="Virement CERA du " + j(2))
     executer_bordereau(s, _lot["bordereau"].id)
 
-    # D02 — service fait confirmé → FILE DES PAIEMENTS (F-22)
+    # D02 — FACTURE REÇUE (= validation, RG-45) → FILE DES PAIEMENTS (F-22)
     d2 = mv_.demander(claire.id, "PR-87", "Coordonner les intervenants autour de Hugo.")
     mv_.etablir(d2.id, 2, "Deux rendez-vous de coordination.")
-    mv_.accepter(d2.id)
-    mv_.declarer_realisee(d2.id, j(3))
-    mv_.confirmer_service_fait(d2.id)
+    mv_.accepter(d2.id); d2.date_engagement = j(9)
+    mv_.facture_recue(d2.id, j(1))
 
-    # D03 — réalisée non confirmée, délai EXPIRÉ → ALERTE (F-70)
+    # D03 — engagé SANS facture depuis 35 j → ALERTE « facture attendue » (F-70)
     d3 = mv_.demander(claire.id, "PR-54", "Garde de nuit ponctuelle pour souffler.")
     mv_.etablir(d3.id, 6, "6 h de garde de nuit par un étudiant en santé.")
-    mv_.accepter(d3.id)
-    mv_.declarer_realisee(d3.id, j(DELAI_CONFIRMATION_JOURS + 3))
+    mv_.accepter(d3.id); d3.date_engagement = j(DELAI_FACTURE_JOURS + 5)
 
     # D04 — forfait à prix fixe : « devisé » immédiatement (F-47), à accepter
     mv_.demander(claire.id, "PR-27", "Besoin de parler de mon épuisement.")
@@ -1683,10 +1669,9 @@ def main():
     print(f"  {d.id} engagé : {eur(d.total)} (aucune intervention du gestionnaire).")
     _pmv(env)
 
-    _role("Service fait (F-49) — ne déclenche AUCUN paiement automatique")
-    mv_.declarer_realisee(d.id)
-    mv_.confirmer_service_fait(d.id)
-    print(f"  {d.id} confirmé par l'assuré-aidant → file des paiements du gestionnaire.")
+    _role("Facture reçue (RG-45) — vaut validation, AUCUN paiement automatique")
+    mv_.facture_recue(d.id)
+    print(f"  {d.id} facturé par le pro → file des paiements du gestionnaire.")
     _pmv(env)
 
     _role("Gestionnaire — paiement MANUEL partiel (F-22, RG-52/53)")

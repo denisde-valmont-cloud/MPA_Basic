@@ -27,15 +27,20 @@ _d_eng = _req("POST", "/api/devis", {"assure_id": _cla, "prestation_id": "PR-86"
               "message": "Suivi du dossier MDPH."})
 _req("POST", f"/api/pro/{_d_eng['jeton']}/etablir", {"quantite": 2})
 _req("POST", f"/api/devis/{_d_eng['id']}/accepter")
+_r3 = _req("POST", "/api/remboursements", {"assure_id": _cla, "libelle": "Taxi consultation gériatre",
+            "motif": "Transport", "montant": "18",
+            "justificatif_nom": "taxi.svg",
+            "justificatif_data": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="})
+_req("POST", f"/api/remboursements/{_r3['id']}/valider")
 _st1 = _req("GET", "/api/state")
 def _jeton(suff):
     return next(d["jeton"] for d in _st1["devis"] if d["id"].endswith(suff))
 PRO_VIEWS = {
     "demande":     _req("GET", f"/api/pro/{_d_dem['jeton']}"),
     "devisé":      _req("GET", f"/api/pro/{_jeton('D04')}"),
-    "engagé":      _req("GET", f"/api/pro/{_d_eng['jeton']}"),
-    "réalisée":    _req("GET", f"/api/pro/{_jeton('D03')}"),
-    "réalisée_sf": _req("GET", f"/api/pro/{_jeton('D02')}"),
+    "engagé":      _req("GET", f"/api/pro/{_jeton('D03')}"),
+    "engagé2":     _req("GET", f"/api/pro/{_d_eng['jeton']}"),
+    "facturée":    _req("GET", f"/api/pro/{_jeton('D02')}"),
     "payé":        _req("GET", f"/api/pro/{_jeton('D01')}"),
 }
 PRO_VIEWS_JSON = json.dumps(PRO_VIEWS, ensure_ascii=False)
@@ -86,8 +91,6 @@ cap("catalogue_categorie",()=>aidCatalogue(READY));
 AID=aidSeed(); AID.boundTo=READY.id;
 cap("catalogue_verrou",()=>aidCatalogue(BLOCKED));
 cap("prestations",()=>aidPrestations(READY));
-AID.contesteId=STATE.devis.find(d=>d.statut==="réalisée"&&!d.service_fait).id;
-cap("prestations_conteste",()=>aidPrestations(READY)); AID.contesteId=null;
 cap("pmvremb",()=>aidPmvRemb(READY));
 cap("pmvremb_verrou",()=>aidPmvRemb(BLOCKED));
 cap("dossier",()=>aidDossier(READY));
@@ -99,8 +102,6 @@ cap("contactmodal",()=>contactModal());
 /* — pro : formulaire mono-demande ouvert par ?pro=<jeton> (A-1a) — */
 PRO_JETON="jeton-harness";
 for(const st of Object.keys(PV)){ PRO_DATA=PV[st]; PRO_ERR=null; cap("proForm_"+st,()=>viewProForm()); }
-PRO_DATA=Object.assign({},PV["réalisée"],{statut:"contestée",motif_contestation:"Incomplète"});
-cap("proForm_contestée",()=>viewProForm());
 PROF.motifOpen=true; PRO_DATA=PV["demande"]; cap("proForm_decliner",()=>viewProForm()); PROF.motifOpen=false;
 PRO_DATA=null; PRO_ERR="Lien expiré (nombre d'ouvertures atteint) — contactez le gestionnaire : gsa@assur-aidant.com";
 cap("proForm_erreur",()=>viewProForm());
@@ -153,15 +154,15 @@ GM={kind:null};
     "equations F-43": /Crédit cumulé/.test(out.pmvremb) && /= solde/.test(out.pmvremb) && /disponible/.test(out.pmvremb),
     "n° dossier permanent": new RegExp("Dossier "+READY.id).test(out.viewAidant_ready),
     "contact conseiller permanent": /Contacter un conseiller/.test(out.viewAidant_ready),
-    "accueil actions prioritaires": /À faire en priorité/.test(out.accueil) && /confirmez le service fait/i.test(out.accueil),
+    "accueil actions prioritaires": /À faire en priorité/.test(out.accueil) && /à accepter ou refuser/i.test(out.accueil),
     "accueil verrou étapes": /étape 1\/2/.test(out.accueil_verrou),
     "catalogue catégories retenues": /VOS CATÉGORIES RETENUES/.test(out.catalogue),
     "catalogue tooltip pro": /ptip-box/.test(out.catalogue),
     "catalogue verrou RIB msg": /Verrouillé — complétez votre profil \(RIB\)/.test(out.catalogue_verrou),
-    "prestations stepper": /Demandé<\/span><span>Devisé/.test(out.prestations),
-    "prestations délai": /j restants|délai expiré/.test(out.prestations),
-    "prestations contestation form": /Pourquoi contestez-vous/.test(out.prestations_conteste),
-    "prestations attente paiement (RG-52)": /En attente du paiement par le gestionnaire/.test(out.prestations),
+    "prestations stepper 5 étapes (facturé)": /Demandé<\/span><span>Devisé/.test(out.prestations) && /Facturé<\/span><span>Payé/.test(out.prestations),
+    "prestations engagé : facture directe au gestionnaire": /adressera sa facture directement au gestionnaire/.test(out.prestations),
+    "prestations facturée : vaut validation, paiement en préparation (RG-45)": /vaut validation/.test(out.prestations) && /Paiement en préparation/.test(out.prestations),
+    "prestations : plus AUCUNE action de confirmation côté aidant": !/service fait/i.test(out.prestations) && !/[Cc]ontest/.test(out.prestations),
     "remb upload file": /type="file" id="ar-file"/.test(out.pmvremb),
     "journal commentaires": /Commentaire du gestionnaire/.test(out.pmvremb),
     "dossier profils": /id="ai-iban"/.test(out.profilform) && /id="ai-tel"/.test(out.profilform),
@@ -172,16 +173,18 @@ GM={kind:null};
     "pro n° dossier + besoin exprimé": new RegExp("Dossier <b>"+PV["demande"].dossier).test(out.proForm_demande) && /Besoin exprimé : « Classement des courriers CAF. »/.test(out.proForm_demande),
     "pro consigne facture F-62": /n° de dossier/.test(out.proForm_payé) && new RegExp("référence "+PV["payé"].ref).test(out.proForm_payé),
     "pro decliner motif": /Motif du refus \(obligatoire/.test(out.proForm_decliner),
-    "pro réalisée aucun paiement auto": /Aucun paiement automatique/.test(out.proForm_réalisée),
-    "pro service fait → facture": /adresser votre facture/.test(out.proForm_réalisée_sf),
-    "pro engagé → déclarer réalisée": /p-realisee/.test(out.proForm_engagé),
+    "pro engagé = consigne de facturation (RG-45)": /adressez votre facture/.test(out.proForm_engagé) && /vaut validation/.test(out.proForm_engagé) && /RG-53/.test(out.proForm_engagé),
+    "pro engagé : aucune action attendue dans MPA": !/p-realisee/.test(out.proForm_engagé) && !/data-act="p-devis"/.test(out.proForm_engagé),
+    "pro facturée : paiement en préparation": /Facture reçue le/.test(out.proForm_facturée) && /vaut validation/.test(out.proForm_facturée),
     "pro lien expiré (page d'erreur)": /Lien invalide, révoqué ou expiré/.test(out.proForm_erreur),
     "header sans rôle pro (2 espaces)": __HDROK__,
     "gest e-mails : lien ?pro= cliquable": /href="http:\/\/x\/\?pro=|\?pro=/.test(out.gEmails) && /<a href=/.test(out.gEmails),
     "gest dossier : renvoi du formulaire pro": /formulaire pro ↗/.test(out.gDossierDetail),
     "gest file paiements RG-52": /acte manuel \(RG-52\)/.test(out.gPaiements) && /Marquer payés \(\d+\) → bordereau/.test(out.gPaiements),
+    "gest factures attendues (engagés) + Facture reçue": /Factures attendues/.test(out.gPaiements) && /data-act="g-facture"/.test(out.gPaiements) && /engagé il y a \d+ j/.test(out.gPaiements),
+    "gest case unique par ligne (tout cocher si ≥2)": !/data-paygrp/.test(out.gPaiements) && /data-act="g-pay-grp"/.test(out.gPaiements),
     "gest file partiel bouton": /Partiel…/.test(out.gPaiements),
-    "gest file groupée par bénéficiaire": /data-paygrp/.test(out.gPaiements) && /\(assuré-aidant\)/.test(out.gPaiements) && /sur facture \(F-62\)/.test(out.gPaiements),
+    "gest file groupée par bénéficiaire": /\(assuré-aidant\)/.test(out.gPaiements) && /sur facture \(F-62\)/.test(out.gPaiements),
     "gest file : nom de l'assuré sur chaque ligne": new RegExp(READY.nom_complet+" — "+READY.id).test(out.gPaiements),
     "gest bordereaux : section + seed exécuté": /BORDEREAUX DE VIREMENT/.test(out.gPaiements) && /BRD-26-001/.test(out.gPaiements) && /Exécuté le/.test(out.gPaiements) && /bordereaux\.csv/.test(out.gPaiements),
     "gest bordereau détail : IBAN + total": /Total du bordereau/.test(out.gPaiementsBrd) && /sur facture \(F-62\)/.test(out.gPaiementsBrd),
@@ -189,8 +192,8 @@ GM={kind:null};
     "gest remb : onglet instruction, validées → paiements": /Demandes de remboursement/.test(out.gRemb) && /→ Paiements à effectuer/.test(out.gRemb) && !/Marquer payées/.test(out.gRemb),
     "gest remb : groupée par dossier avec PMV (solde/engagé/disponible)": new RegExp(READY.nom_complet).test(out.gRemb) && /Solde/.test(out.gRemb) && /Engagé/.test(out.gRemb) && /Disponible/.test(out.gRemb),
     "gest justificatif lien": /justificatif" target="_blank"|justificatif"/.test(out.gRemb),
-    "gest alertes délai+tâche": /Délai expiré/.test(out.gAlertes) && /tâche quotidienne \(F-70\)/.test(out.gAlertes),
-    "gest alertes 3 actions F-25": /Confirmer pour le compte/.test(out.gAlertes) && /Payer partiellement/.test(out.gAlertes) && /Annuler \(désengagement intégral\)/.test(out.gAlertes),
+    "gest alertes : facture attendue (A-3) + tâche F-70": /Facture attendue/.test(out.gAlertes) && /tâche quotidienne \(F-70\)/.test(out.gAlertes),
+    "gest alertes : Facture reçue + Annuler (litige)": /Facture reçue \(vaut validation\)/.test(out.gAlertes) && /Annuler \(litige/.test(out.gAlertes),
     "gest form PFD obligatoire": /PFD principal/.test(out.gForm) && /obligatoire \(RG-41\)/.test(out.gForm),
     "gest form crédit libre": /saisie libre/.test(out.gForm),
     "gest NDD 5-6 refusés": /NDD 5 — non éligible/.test(out.gForm),
