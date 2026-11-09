@@ -100,19 +100,23 @@ _, a, _ = req("GET", f"/api/assures/{paul}")
 T("F-42 PMV utilisable après les 2 verrous", a["pmv_etat"] == "utilisable" and a["etat_dossier"] == "Actif")
 
 # ── F-47 / F-60 / F-48 / RG-51 : cycle devis jusqu'à l'engagement ────────
-_, d, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-86", "message": "Dossier MDPH, le mercredi."})
+_, d, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-86",
+                                     "message": "Dossier MDPH, le mercredi.", "quantite": "6"})
+T("F-47 volume souhaité enregistré avec la demande", d["quantite_souhaitee"] == "6.00")
 did = d["id"]
 T("§9 réf. devis dérivée", did == f"{paul}-D01")
 _, emn, _ = req("GET", "/api/emails")
 mail_pro = [e for e in emn["emails"] if did in e["objet"]]
 jd = jeton(did)
-T("F-47 e-mail au pro : n° dossier + lien ?pro=<jeton> + consigne facture",
+T("F-47 e-mail au pro : n° dossier + lien ?pro=<jeton> + volume souhaité + consigne facture",
   bool(mail_pro) and paul in mail_pro[0]["corps"] and f"?pro={jd}" in mail_pro[0]["corps"]
-  and "facture" in mail_pro[0]["corps"])
+  and "facture" in mail_pro[0]["corps"]
+  and "Volume souhaité par l'assuré-aidant : 6 heure(s)" in mail_pro[0]["corps"])
 # — A-1a : le pro n'a PAS de compte — il répond par son lien, qui n'expose que le nécessaire —
 c, pv, _ = req("GET", f"/api/pro/{jd}")
-T("A-1a formulaire pro : n° de dossier + besoin exprimé, RIEN d'autre",
+T("A-1a formulaire pro : n° de dossier + besoin + volume souhaité, RIEN d'autre",
   c == 200 and pv["dossier"] == paul and pv["besoin"] == "Dossier MDPH, le mercredi."
+  and pv["quantite_souhaitee"] == "6.00"
   and "pmv" not in pv and "nom_complet" not in json.dumps(pv) and "aides" not in pv)
 c, r, _ = req("GET", "/api/pro/jeton-inconnu")
 T("A-1a jeton inconnu → 404", c == 404)
@@ -131,9 +135,26 @@ T("A-1a acceptation notifiée au pro (même lien, pour le suivi)",
   any("Devis accepté" in e["objet"] and did in e["objet"] and f"?pro={jd}" in e["corps"] for e in ema["emails"]))
 c, r, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-54", "message": ""})
 big = r["id"]; req("POST", f"/api/pro/{jeton(big)}/etablir", {"quantite": 9999})
+# ── RG-43 (amendé) : dépassement = RESTE À CHARGE confirmé, jamais un blocage ──
+avant_rac = pmv(paul)
 c, r, _ = req("POST", f"/api/devis/{big}/accepter")
-T("RG-43 engagement > disponible refusé", c == 400 and "disponible" in r.get("error",""))
-req("POST", f"/api/devis/{big}/refuser")
+T("RG-43 dépassement sans confirmation → 409 + chiffres exacts",
+  c == 409 and Decimal(r["prise_en_charge"]) == avant_rac["disponible"]
+  and Decimal(r["reste_a_charge"]) == Decimal(r["total"]) - avant_rac["disponible"])
+c, r, _ = req("POST", f"/api/devis/{big}/accepter", {"accepter_reste_a_charge": True})
+apres_rac = pmv(paul)
+T("RG-43 maintien confirmé : engagement plafonné au disponible, RAC tracé",
+  c == 200 and r["statut"] == "engagé"
+  and Decimal(r["montant_engage"]) == avant_rac["disponible"]
+  and Decimal(r["reste_a_charge"]) == Decimal(r["total"]) - avant_rac["disponible"]
+  and apres_rac["disponible"] == Decimal("0.00") and eq_ok(paul))
+_, emr, _ = req("GET", "/api/emails")
+T("RG-43 e-mail pro : DEUX facturations (part garantie / reste à charge direct)",
+  any(big in e["objet"] and "DEUX facturations" in e["corps"]
+      and "DIRECTEMENT à l'assuré-aidant" in e["corps"] for e in emr["emails"]))
+c, r, _ = req("POST", f"/api/devis/{big}/annuler", {"motif": "Test RG-43 — retour arrière"})
+T("RG-43 annulation : seule la part engagée est désengagée",
+  c == 200 and pmv(paul)["disponible"] == avant_rac["disponible"] and eq_ok(paul))
 _, df, _ = req("POST", "/api/devis", {"assure_id": paul, "prestation_id": "PR-27", "message": ""})
 T("F-47 forfait → « devisé » immédiat", df["statut"] == "devisé" and df["total"] == "65.00")
 jf = jeton(df["id"])

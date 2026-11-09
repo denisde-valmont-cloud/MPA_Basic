@@ -18,6 +18,7 @@ bancaires, les rejets, le renouvellement et le reporting assureur sont **hors ou
 | Onglet « Remboursements » mêlant instruction et paiement | **« Demandes de remboursement »** : l'instruction seule, **groupée par dossier** (nom de l'assuré + solde / engagé / disponible du PMV en tête de groupe) ; une demande **validée bascule dans « Paiements à effectuer »**, file **groupée par bénéficiaire** |
 | Déclaration de réalisation (pro) puis confirmation du service fait (assuré-aidant), libération à J+7 | **Ni l'une ni l'autre** : à l'acceptation, le pro reçoit les informations à porter sur sa facture ; **la réception de la facture, enregistrée par le gestionnaire (« Facture reçue »), vaut validation de la prestation** (RG-45, confiance dans le réseau) et met la ligne en file de paiement. Litiges réglés par le gestionnaire : annulation motivée (désengagement intégral) ou paiement partiel (F-25). Vigilances F-70 : **facture attendue** au-delà de 30 j (A-3 recyclé) et **bordereau non exécuté** au-delà de 3 j (A-7) |
 | PMV 3 compartiments | **5 chiffres + 2 équations** affichées : crédit cumulé − payé = solde ; solde − engagé = disponible (F-43) |
+| Dépassement du disponible = demande refusée | **Volume souhaité** saisi dès la demande (estimation immédiate, le pro confirme ou ajuste) ; un devis **peut dépasser le disponible** (RG-43 amendé) : engagement PMV **plafonné au disponible**, l'excédent = **reste à charge confirmé par l'assuré-aidant** (chiffres à l'appui), facturé **directement** par le pro à l'assuré — l'e-mail au pro détaille les **deux facturations** |
 | Écran « Pro » permanent (3e rôle dans l'en-tête) | **Pas de compte pro** : un **jeton par demande** dans l'e-mail simulé ouvre un **formulaire mono-demande** (`/?pro=<jeton>` → `GET /api/pro/<jeton>`, **minimisé** : n° de dossier + besoin exprimé + prestation — jamais l'identité de l'aidant ni le PMV) ; chiffrer/décliner puis déclarer la réalisation ; plafond d'ouvertures, lien consultatif après clôture |
 | — | **Blocage/déblocage** du PMV (F-27, RG-50), **n° de dossier GSA-AA-NNNNN** (§9) avec références dérivées -Dnn/-Rnn, **contact conseiller** (F-52), **commentaires du gestionnaire** sur chaque mouvement (F-26), **justificatif réellement déposé et consultable** (F-51), **exports CSV** (F-28), **e-mails simulés** journalisés |
 
@@ -32,9 +33,9 @@ mpa_api.py      API HTTP (stdlib) — table des routes en tête ; sert le shell
                 sur / ; routes /api/pro/<jeton> (vue minimisée) pour le pro.
 mpa_demo.html   Shell (HTML/JS sans dépendance) : 2 espaces + formulaire pro
                 par lien, sommaire §1–§9.
-nonreg_v1.py    LA SPÉCIFICATION EXÉCUTABLE : 83 vérifications rejouant chaque
+nonreg_v1.py    LA SPÉCIFICATION EXÉCUTABLE : 87 vérifications rejouant chaque
                 exigence F-xx/RG-xx de bout en bout.  python3 nonreg_v1.py
-render_v1.py    Harness de rendu : 39 vues des 3 profils d'usage sur le jeu
+render_v1.py    Harness de rendu : 42 vues des 3 profils d'usage sur le jeu
                 d'essai réel + replis IA (requiert node).
 Procfile, render.yaml, requirements.txt : inchangés.
 ```
@@ -44,31 +45,32 @@ Procfile, render.yaml, requirements.txt : inchangés.
 | Réf. | Où | Vérifié |
 |---|---|---|
 | F-20/RG-41/RG-13 | `MoteurDossiers.preinscrire` (PFD **obligatoire**, NDD 5–6 refusés, crédit libre, n° §9, e-mail d'activation avec lien) | 01–10 |
-| **A-1a (pro sans compte)** | jeton par demande (`Devis.jeton`), `GET/POST /api/pro/<jeton>` **minimisés**, 404 jeton inconnu, anciennes routes pro supprimées, plafond d'ouvertures → 410, lien consultatif après clôture, acceptation notifiée au pro | 17–20, 23, 26–29 |
+| **A-1a (pro sans compte)** | jeton par demande (`Devis.jeton`), `GET/POST /api/pro/<jeton>` **minimisés**, 404 jeton inconnu, anciennes routes pro supprimées, plafond d'ouvertures → 410, lien consultatif après clôture, acceptation notifiée au pro | 19–21, 24, 30–33 |
 | F-40 | Lien `?dossier=GSA-AA-NNNNN` ouvre le portail sur le dossier ; n° affiché en permanence (bandeau) | smoke test |
 | F-41/F-42/RG-42 | `pmv_etat` : Verrouillé RIB → Verrouillé PFD → Utilisable ; IBAN mod-97 | 11–15 |
-| F-43/RG-43 | `Enveloppe` 5 chiffres, équations affichées, `_verifier()` (F-71) | 03, 19, 32, 39 |
-| F-44/RG-61-62 | `/api/analyse/generer` (≤40 lignes, factuel, sans diagnostic) ; **seule la version validée est stockée** ; repli local | 75, 77 |
-| F-45/RG-60/63 | `/api/anticiper2`, taxonomie fermée 9 catégories, retenir/écarter → « Mon parcours » ; repli déterministe | 76 + harness |
+| F-43/RG-43 | `Enveloppe` 5 chiffres, équations affichées, `_verifier()` (F-71) | 03 + `eq_ok()` transverse |
+| F-44/RG-61-62 | `/api/analyse/generer` (≤40 lignes, factuel, sans diagnostic) ; **seule la version validée est stockée** ; repli local | 79, 81 |
+| F-45/RG-60/63 | `/api/anticiper2`, taxonomie fermée 9 catégories, retenir/écarter → « Mon parcours » ; repli déterministe | 80 + harness |
 | F-46 | Catégories retenues → liste **complète** filtrée (tri premium→labellisé→autre, 3 facettes) ; catalogue libre | harness |
-| F-47/F-48/RG-51 | `demander` (message, **e-mail au pro avec `?pro=<jeton>`**, forfait→devisé, verrous), `accepter` = **engagement automatique**, garde disponible | 16–17, 21–25 |
-| RG-45 (remplace F-49/F-61) | `facture_recue` (gestionnaire) : **la réception de la facture vaut validation** → file des paiements ; e-mail d'acceptation = infos de facturation ; étapes réalisation/service fait **supprimées** (404) ; alerte « facture attendue » (A-3) | 30–37 |
-| F-50 | Fil d'avancement par devis (demandé→devisé→engagé→réalisé→payé) + délai + actions prioritaires à l'accueil | harness |
-| F-51 | Dépôt **réel** du justificatif (PDF/image, dataURL) ; consultable par le gestionnaire (`GET …/justificatif`) | 43–45 |
-| F-52 | `contacter` (appel/rappel/message/rendez-vous, aucun chatbot) — bouton permanent, visible au dossier gestionnaire | 72–73 |
-| F-60/F-62/F-63 | `etablir` (message pro) / `refuser_pro` (motif) — **exclusivement via `/api/pro/<jeton>`** ; consignes de facturation affichées ; paiement ≤ engagé | 21, 26–27, 38 |
-| F-21 | `crediter` (Crédit initial · Correction), journalisé, irréversible, correction négative tracée | 60–63 |
-| F-22/RG-52/RG-53 | `payer_lot` : tout passage en payé (unitaire, partiel → reliquat recrédité, ou lot `/api/paiements`) **génère un bordereau par bénéficiaire** ; `executer_bordereau` trace le passage en banque ; file **groupée par bénéficiaire** | 32, 38–41, 51–59 |
-| F-23/RG-44 | `valider` (**partiel automatique** = min(demandé, disponible), **engage**, bascule en file des paiements), `refuser` (motif), `demander_piece`/`redeposer`, `marquer_payee` via bordereau | 47–50 |
-| F-24 | E-mails automatiques (demande au pro, acceptation, paiement **avec référence du bordereau**, validation partielle, refus) — **simulés**, journal consultable, **liens cliquables** | 40–41 + onglet E-mails |
-| F-25 | Règlement des litiges par le gestionnaire : **annuler** (motif, désengagement intégral) un devis engagé ou facturé ; **paiement partiel** (RG-53) ; actions directes sur les alertes | 39, 42 |
-| F-26 | `commenter_mouvement` — visible par l'assuré-aidant dans son historique | 69 |
-| F-27/RG-50 | `bloquer`/`debloquer` (motif) ; engagements en cours honorés ; consultation/orientation accessibles | 64–68 |
-| F-28 | `GET /api/exports/{dossiers,mouvements,devis,remboursements,bordereaux}.csv` | 59, 74 |
-| F-70 | `alertes()` + `POST /api/tache-quotidienne` — **aucune libération automatique** | 70–71 |
-| F-71 | Gardes serveur : engagement ≤ disponible, paiement ≤ engagé, validé ≤ disponible, aucun compartiment négatif (`IntegriteError`) | 24, 38, 49 |
-| F-72/A-2 | Snapshot aidance-pro embarqué + `AIDANCE_PRO_CATALOGUE_URL` (+`_TOKEN`), repli auto ; source affichée dans `/api/diag` | 83 |
-| §9 | `GSA-AA-NNNNN`, séquence annuelle ; devis `-Dnn`, remboursements `-Rnn`, bordereaux `BRD-AA-NNN` (sans clé de contrôle — A-4) | 01–02, 16, 44 |
+| F-47/F-48/RG-51 | `demander` (message, **volume souhaité**, **e-mail au pro avec `?pro=<jeton>`**, forfait→devisé, verrous), `accepter` = **engagement automatique** plafonné au disponible | 16–18, 23, 29 |
+| RG-43 (amendé) | Dépassement du disponible : **409 + chiffres exacts** sans confirmation ; maintien confirmé → `montant_engage` = disponible, `reste_a_charge` tracé, **e-mail pro à deux facturations** ; l'annulation ne désengage que la part engagée | 25–28 |
+| RG-45 (remplace F-49/F-61) | `facture_recue` (gestionnaire) : **la réception de la facture vaut validation** → file des paiements ; e-mail d'acceptation = infos de facturation ; étapes réalisation/service fait **supprimées** (404) ; alerte « facture attendue » (A-3) | 34–41 |
+| F-50 | Fil d'avancement par devis (demandé→devisé→engagé→facturé→payé) + actions prioritaires à l'accueil | harness |
+| F-51 | Dépôt **réel** du justificatif (PDF/image, dataURL) ; consultable par le gestionnaire (`GET …/justificatif`) | 47–49 |
+| F-52 | `contacter` (appel/rappel/message/rendez-vous, aucun chatbot) — bouton permanent, visible au dossier gestionnaire | 76–77 |
+| F-60/F-62/F-63 | `etablir` (message pro) / `refuser_pro` (motif) — **exclusivement via `/api/pro/<jeton>`** ; consignes de facturation affichées ; paiement ≤ engagé | 22, 30–31, 42 |
+| F-21 | `crediter` (Crédit initial · Correction), journalisé, irréversible, correction négative tracée | 64–67 |
+| F-22/RG-52/RG-53 | `payer_lot` : tout passage en payé (unitaire, partiel → reliquat recrédité, ou lot `/api/paiements`) **génère un bordereau par bénéficiaire** ; `executer_bordereau` trace le passage en banque ; file **groupée par bénéficiaire** | 42–45, 55–63 |
+| F-23/RG-44 | `valider` (**partiel automatique** = min(demandé, disponible), **engage**, bascule en file des paiements), `refuser` (motif), `demander_piece`/`redeposer`, `marquer_payee` via bordereau | 51–54 |
+| F-24 | E-mails automatiques (demande au pro, acceptation, paiement **avec référence du bordereau**, validation partielle, refus) — **simulés**, journal consultable, **liens cliquables** | 44–45 + onglet E-mails |
+| F-25 | Règlement des litiges par le gestionnaire : **annuler** (motif, désengagement de la part engagée) un devis engagé ou facturé ; **paiement partiel** (RG-53) ; actions directes sur les alertes | 28, 43, 46 |
+| F-26 | `commenter_mouvement` — visible par l'assuré-aidant dans son historique | 73 |
+| F-27/RG-50 | `bloquer`/`debloquer` (motif) ; engagements en cours honorés ; consultation/orientation accessibles | 68–72 |
+| F-28 | `GET /api/exports/{dossiers,mouvements,devis,remboursements,bordereaux}.csv` | 63, 78 |
+| F-70 | `alertes()` + `POST /api/tache-quotidienne` — **aucune action automatique** | 74–75 |
+| F-71 | Gardes serveur : engagement plafonné au disponible, paiement ≤ engagé, validé ≤ disponible, aucun compartiment négatif (`IntegriteError`) | 25–26, 42, 53 |
+| F-72/A-2 | Snapshot aidance-pro embarqué + `AIDANCE_PRO_CATALOGUE_URL` (+`_TOKEN`), repli auto ; source affichée dans `/api/diag` | 87 |
+| §9 | `GSA-AA-NNNNN`, séquence annuelle ; devis `-Dnn`, remboursements `-Rnn`, bordereaux `BRD-AA-NNN` (sans clé de contrôle — A-4) | 01–02, 17, 48 |
 
 **Arbitrages appliqués (§10)** — A-1 : **(a)** lien sécurisé par e-mail, réellement
 outillé : **un jeton aléatoire par demande** (`?pro=<jeton>`), plafond d'ouvertures
@@ -129,15 +131,15 @@ inspiré des auto-diagnostics associatifs, sans reprise de leurs contenus).
 ```bash
 python3 mpa_api.py            # http://127.0.0.1:8765/  (shell servi sur /)
 python3 mpa_core.py           # scénario console du cycle V1 complet
-python3 nonreg_v1.py          # la spécification exécutable (83 vérifications)
+python3 nonreg_v1.py          # la spécification exécutable (87 vérifications)
 ```
 Render : pousser ces fichiers (racine), Blueprint `render.yaml` — inchangé. Après
 déploiement : « Réinitialiser » dans le shell.
 
 ## Règle d'or pour toute évolution
 
-Toute modification doit laisser `nonreg_v1.py` (83 vérifications) et `render_v1.py`
-(39 vues, 59 assertions) **verts** — c'est ainsi que cette V1 a été validée, en plus
+Toute modification doit laisser `nonreg_v1.py` (87 vérifications) et `render_v1.py`
+(42 vues, 65 assertions) **verts** — c'est ainsi que cette V1 a été validée, en plus
 de deux parcours complets en navigateur réel (Playwright) : le circuit pro par
 lien (demande → e-mail → chiffrage → acceptation → consigne de facturation →
 facture reçue → file de paiement) et le circuit gestionnaire (instruction groupée

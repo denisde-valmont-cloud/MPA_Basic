@@ -22,7 +22,8 @@ def _req(m, p, b=None):
 _st0 = _req("GET", "/api/state")
 _cla = next(a for a in _st0["assures"] if a["prenom"] == "Claire")["id"]
 _d_dem = _req("POST", "/api/devis", {"assure_id": _cla, "prestation_id": "PR-86",
-              "message": "Classement des courriers CAF.", "lien_base": "http://x/"})
+              "message": "Classement des courriers CAF.", "quantite": "3",
+              "lien_base": "http://x/"})
 _d_eng = _req("POST", "/api/devis", {"assure_id": _cla, "prestation_id": "PR-86",
               "message": "Suivi du dossier MDPH."})
 _req("POST", f"/api/pro/{_d_eng['jeton']}/etablir", {"quantite": 2})
@@ -32,6 +33,9 @@ _r3 = _req("POST", "/api/remboursements", {"assure_id": _cla, "libelle": "Taxi c
             "justificatif_nom": "taxi.svg",
             "justificatif_data": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="})
 _req("POST", f"/api/remboursements/{_r3['id']}/valider")
+_st0b = _req("GET", "/api/state")
+_d5 = next(d["id"] for d in _st0b["devis"] if d["id"].endswith("D05"))
+_req("POST", f"/api/devis/{_d5}/accepter", {"accepter_reste_a_charge": True})   # RG-43
 _st1 = _req("GET", "/api/state")
 def _jeton(suff):
     return next(d["jeton"] for d in _st1["devis"] if d["id"].endswith(suff))
@@ -40,6 +44,7 @@ PRO_VIEWS = {
     "devisé":      _req("GET", f"/api/pro/{_jeton('D04')}"),
     "engagé":      _req("GET", f"/api/pro/{_jeton('D03')}"),
     "engagé2":     _req("GET", f"/api/pro/{_d_eng['jeton']}"),
+    "engagé_rac":  _req("GET", f"/api/pro/{_jeton('D05')}"),
     "facturée":    _req("GET", f"/api/pro/{_jeton('D02')}"),
     "payé":        _req("GET", f"/api/pro/{_jeton('D01')}"),
 }
@@ -91,6 +96,11 @@ cap("catalogue_categorie",()=>aidCatalogue(READY));
 AID=aidSeed(); AID.boundTo=READY.id;
 cap("catalogue_verrou",()=>aidCatalogue(BLOCKED));
 cap("prestations",()=>aidPrestations(READY));
+AID.demandePid=(STATE.prestations.find(p=>p.unite!=="Prestation complète")||{}).id; AID.demandeQty="200";
+cap("catalogue_demande",()=>aidCatalogue(READY));
+AID.demandePid=null; AID.demandeQty="";
+AID.rac={ref:"GSA-26-00002-D05", total:"1374.00", prise_en_charge:"1130.60", reste_a_charge:"243.40", disponible:"1130.60"};
+cap("racmodal",()=>racModal()); AID.rac=null;
 cap("pmvremb",()=>aidPmvRemb(READY));
 cap("pmvremb_verrou",()=>aidPmvRemb(BLOCKED));
 cap("dossier",()=>aidDossier(READY));
@@ -159,6 +169,12 @@ GM={kind:null};
     "catalogue catégories retenues": /VOS CATÉGORIES RETENUES/.test(out.catalogue),
     "catalogue tooltip pro": /ptip-box/.test(out.catalogue),
     "catalogue verrou RIB msg": /Verrouillé — complétez votre profil \(RIB\)/.test(out.catalogue_verrou),
+    "demande : volume souhaité + estimation + RAC estimé": /Volume souhaité/.test(out.catalogue_demande) && /a-dv-qty/.test(out.catalogue_demande) && /reste à charge estimé/i.test(out.catalogue_demande),
+    "modal RAC : chiffres + maintien": /Reste à charge à confirmer/.test(out.racmodal) && /1\s?130,60/.test(out.racmodal.replace(/\u202f/g," ")) && /243,40/.test(out.racmodal) && /Maintenir/.test(out.racmodal),
+    "prestations : devis engagé avec RAC affiché": /à votre charge/.test(out.prestations) && /pris en charge/.test(out.prestations),
+    "pro engagé avec RAC : deux facturations": /deux facturations/.test(out.proForm_engagé_rac) && /directement à l'assuré-aidant/.test(out.proForm_engagé_rac),
+    "pro demande : volume souhaité affiché et pré-rempli": /Volume souhaité : 3 heure\(s\)/.test(out.proForm_demande) && /value="3"/.test(out.proForm_demande),
+    "gest factures attendues : chip RAC": /\+ RAC/.test(out.gPaiements),
     "prestations stepper 5 étapes (facturé)": /Demandé<\/span><span>Devisé/.test(out.prestations) && /Facturé<\/span><span>Payé/.test(out.prestations),
     "prestations engagé : facture directe au gestionnaire": /adressera sa facture directement au gestionnaire/.test(out.prestations),
     "prestations facturée : vaut validation, paiement en préparation (RG-45)": /vaut validation/.test(out.prestations) && /Paiement en préparation/.test(out.prestations),

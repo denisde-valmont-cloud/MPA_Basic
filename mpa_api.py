@@ -39,8 +39,10 @@ Table des routes
   POST /api/pro/<jeton>/etablir                 F-60 {quantite, message_pro}
   POST /api/pro/<jeton>/refuser                 F-60 {motif}
 
-  POST /api/devis                               F-47 {assure_id, prestation_id, message, lien_base?}
-  POST /api/devis/<réf>/accepter                F-48 = engagement automatique (RG-51)
+  POST /api/devis                               F-47 {assure_id, prestation_id, message, quantite?, lien_base?}
+  POST /api/devis/<réf>/accepter                F-48 = engagement automatique (RG-51), plafonné au
+                                                disponible ; dépassement -> 409 {reste_a_charge…},
+                                                à confirmer par {accepter_reste_a_charge: true} (RG-43)
   POST /api/devis/<réf>/refuser                 F-48 (assuré-aidant)
   POST /api/devis/<réf>/facture-recue           RG-45 : réception facture = VALIDATION (gestionnaire)
   POST /api/devis/<réf>/payer                   F-22 {montant?, commentaire?} — MANUEL (RG-52/53)
@@ -145,7 +147,10 @@ def pro_view(d, store):
         "besoin": d.message,                          # F-47 — besoin exprimé
         "message_pro": d.message_pro,
         "quantite": str(d.quantite) if d.quantite is not None else None,
+        "quantite_souhaitee": str(d.quantite_souhaitee) if d.quantite_souhaitee is not None else None,
         "total": str(d.total) if d.total is not None else None,
+        "montant_engage": str(d.montant_engage) if d.montant_engage is not None else None,
+        "reste_a_charge": str(d.reste_a_charge) if d.reste_a_charge is not None else None,
         "date_demande": d.date_demande,
         "date_engagement": d.date_engagement,
         "date_facture": d.date_facture,
@@ -468,7 +473,8 @@ class Handler(BaseHTTPRequestHandler):
                 if parts == ["api", "devis"]:
                     d = APP.devis.demander(body.get("assure_id"), body.get("prestation_id"),
                                            body.get("message", ""),
-                                           lien_base=body.get("lien_base", ""))
+                                           lien_base=body.get("lien_base", ""),
+                                           quantite=body.get("quantite"))
                     return self._json(jsonable(d), 201)
 
                 if len(parts) == 4 and parts[:2] == ["api", "devis"]:
@@ -476,7 +482,17 @@ class Handler(BaseHTTPRequestHandler):
                     if did not in s.devis:
                         return self._err("Devis introuvable", 404)
                     if action == "accepter":
-                        d = APP.devis.accepter(did)
+                        try:
+                            d = APP.devis.accepter(
+                                did, bool(body.get("accepter_reste_a_charge")))
+                        except core.ResteACharge as e:
+                            return self._json({
+                                "error": str(e),
+                                "reste_a_charge": str(e.reste),
+                                "prise_en_charge": str(e.prise_en_charge),
+                                "disponible": str(e.disponible),
+                                "total": str(e.total),
+                            }, 409)
                     elif action == "refuser":
                         d = APP.devis.refuser(did)
                     elif action == "facture-recue":

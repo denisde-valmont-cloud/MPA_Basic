@@ -28,6 +28,11 @@ RG-20/21 Un seul montant, celui du PFD de référence ; jamais une somme.
 RG-41   PFD principal obligatoire à la pré-inscription (contrôle serveur).
 RG-42   Double verrou du PMV : RIB puis profil du PFD principal.
 RG-43   disponible = solde − engagé ; solde = crédit cumulé − payé ;
+        (amendé 09/11/2026) un devis peut DÉPASSER le disponible : l'engagement
+        PMV est alors plafonné au disponible, l'excédent constitue un RESTE À
+        CHARGE dû par l'assuré-aidant directement au professionnel, et
+        l'acceptation exige une confirmation explicite, chiffres à l'appui
+        (ResteACharge → confirmation → engagement partiel) ;
         engagement refusé si > disponible ; aucun compartiment négatif.
 RG-44   Remboursement validé au plus à hauteur du disponible (partiel auto).
 RG-45   Cycle devis : demande → devisé (forfait : direct) → engagé → facturée
@@ -98,6 +103,14 @@ REFERENCES_CONTRAT = [                 # référence contrat (gestion des contra
 # ╚══════════════════════════════════════════════════════════════════════╝
 def D(x) -> Decimal:
     return Decimal(str(x)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def fq(q) -> str:
+    """Quantité lisible : 60.00 -> « 60 », 2.50 -> « 2,5 »."""
+    if q is None:
+        return ""
+    t = f"{q}".rstrip("0").rstrip(".")
+    return (t or "0").replace(".", ",")
 
 
 def eur(d: Optional[Decimal]) -> str:
@@ -179,6 +192,21 @@ class Mouvement:
     ref: str = ""                    # référence devis / remboursement
     auteur: str = ""                 # gestionnaire | assuré-aidant | système
     commentaire: str = ""            # F-26 — visible par l'assuré-aidant
+
+
+class ResteACharge(ValueError):
+    """RG-43 (amendé) — le devis dépasse le disponible : l'acceptation exige
+    la confirmation explicite de l'assuré-aidant, chiffres à l'appui."""
+    def __init__(self, total: Decimal, disponible: Decimal):
+        self.total = total
+        self.disponible = disponible
+        self.prise_en_charge = min(total, disponible)
+        self.reste = (total - self.prise_en_charge).quantize(Decimal("0.01"))
+        super().__init__(
+            f"Ce devis ({eur(total)}) dépasse votre disponible ({eur(disponible)}) : "
+            f"prise en charge {eur(self.prise_en_charge)}, reste à votre charge "
+            f"{eur(self.reste)} à régler directement au professionnel. "
+            "Confirmation requise (RG-43).")
 
 
 class IntegriteError(ValueError):
@@ -345,6 +373,9 @@ class Devis:
     statut: str
     quantite: Optional[Decimal] = None
     total: Optional[Decimal] = None
+    quantite_souhaitee: Optional[Decimal] = None  # F-47 — volume souhaité par l'assuré
+    montant_engage: Optional[Decimal] = None      # RG-43 — part prise en charge (≤ disponible)
+    reste_a_charge: Optional[Decimal] = None      # RG-43 — dû par l'assuré au pro
     message: str = ""                 # message de l'assuré-aidant (F-47)
     message_pro: str = ""             # message du pro (F-60)
     date_demande: str = field(default_factory=_today)
@@ -642,12 +673,12 @@ class MoteurDevis:
         return f"{self.s.lien_base}?pro={d.jeton}"
 
     # — F-47 : demande (message libre) ; forfait → devisé ; e-mail + lien au pro —
-    def demander(self, assure_id, prestation_id, message="", lien_base="") -> Devis:
+    def demander(self, assure_id, prestation_id, message="", lien_base="", quantite=None) -> Devis:
         if (lien_base or "").strip():
             self.s.lien_base = lien_base.strip()
-        return self._demander(assure_id, prestation_id, message)
+        return self._demander(assure_id, prestation_id, message, quantite)
 
-    def _demander(self, assure_id, prestation_id, message="") -> Devis:
+    def _demander(self, assure_id, prestation_id, message="", quantite=None) -> Devis:
         a = self.s.assures.get(assure_id)
         if a is None:
             raise KeyError(f"Dossier introuvable : {assure_id}")
@@ -658,6 +689,11 @@ class MoteurDevis:
         d = Devis(self._ref(a), assure_id, prestation_id, p.pro_id,
                   statut="demande", message=(message or "").strip(),
                   jeton=secrets.token_urlsafe(9))     # A-1a : un jeton PAR demande
+        if quantite not in (None, "") and not p.forfait:   # F-47 — volume souhaité
+            q = D(quantite)
+            if q <= 0:
+                raise ValueError("Quantité souhaitée positive requise.")
+            d.quantite_souhaitee = q
         if p.forfait:                       # forfait à prix fixe : devisé immédiatement
             d.quantite = D(1)
             d.total = p.prix
@@ -668,7 +704,10 @@ class MoteurDevis:
                      f"[MPA] Demande de devis {d.id} — dossier {a.id}",
                      f"Prestation : {p.nom}\nN° de dossier : {a.id}\n"
                      f"Besoin exprimé : {d.message or '(non précisé)'}\n"
-                     f"Répondez (chiffrage ou refus) via votre lien sécurisé à usage limité,\n"
+                     + (f"Volume souhaité par l'assuré-aidant : {fq(d.quantite_souhaitee)} "
+                        f"{'jour(s)' if p.unite == 'Par jour' else 'heure(s)'} "
+                        f"(à confirmer ou ajuster dans votre devis).\n" if d.quantite_souhaitee else "")
+                     + f"Répondez (chiffrage ou refus) via votre lien sécurisé à usage limité,\n"
                      f"sans création de compte : {self._lien_pro(d)}\n"
                      f"Rappel : la facture sera à adresser à {EMAIL_GESTION} en mentionnant "
                      f"le n° de dossier {a.id} et la référence {d.id}.")
@@ -691,7 +730,7 @@ class MoteurDevis:
         a = self.s.assures[d.assure_id]
         self.s.email(a.email, f"[MPA] Devis reçu — {d.id}",
                      f"{self.s.pros[d.pro_id].nom} propose : {p.nom}, "
-                     f"{q} × {eur(p.prix)} = {eur(d.total)}. À accepter ou refuser dans votre espace.")
+                     f"{fq(q)} × {eur(p.prix)} = {eur(d.total)}. À accepter ou refuser dans votre espace.")
         return d
 
     # — … ou décline avec motif —
@@ -705,8 +744,9 @@ class MoteurDevis:
         d.motif_refus = f"Décliné par le professionnel : {motif.strip()}"
         return d
 
-    # — F-48 / RG-51 : acceptation = ENGAGEMENT AUTOMATIQUE —
-    def accepter(self, devis_id) -> Devis:
+    # — F-48 / RG-51 : acceptation = ENGAGEMENT AUTOMATIQUE, plafonné au
+    #   disponible ; l'excédent = reste à charge CONFIRMÉ par l'assuré (RG-43) —
+    def accepter(self, devis_id, accepter_reste_a_charge=False) -> Devis:
         d = self.s.devis[devis_id]
         if d.statut != "devisé":
             raise ValueError(f"Acceptation impossible : devis « {d.statut} ».")
@@ -715,20 +755,41 @@ class MoteurDevis:
             raise ValueError(_b)
         p = self.s.prestations[d.prestation_id]
         env = self.s.pmv(d.assure_id)
-        env.engager(d.total, f"Engagement — {p.nom}", d.id, "assuré-aidant")
+        pec = min(d.total, env.disponible)
+        rac = (d.total - pec).quantize(Decimal("0.01"))
+        if rac > 0 and not accepter_reste_a_charge:
+            raise ResteACharge(d.total, env.disponible)
+        if pec > 0:
+            env.engager(pec, f"Engagement — {p.nom}"
+                             + (f" (devis {eur(d.total)}, reste à charge {eur(rac)})" if rac > 0 else ""),
+                        d.id, "assuré-aidant")
+        d.montant_engage = pec
+        d.reste_a_charge = rac
         d.statut = "engagé"
         d.date_engagement = _today()
         pro = self.s.pros[d.pro_id]
-        self.s.email(pro.email or f"{pro.nom} (adresse du catalogue aidance-pro)",
-                     f"[MPA] Devis accepté — {d.id} — à facturer après réalisation",
-                     f"Votre devis ({eur(d.total)}) est accepté : la prestation peut être réalisée.\n"
+        if rac > 0:
+            corps = (f"Votre devis ({eur(d.total)}) est accepté : la prestation peut être réalisée.\n"
+                     f"L'assuré-aidant a confirmé un RESTE À CHARGE : la garantie prend en charge "
+                     f"{eur(pec)}, le solde est dû par l'assuré-aidant directement auprès de vous.\n"
+                     f"Après réalisation, établissez DEUX facturations :\n"
+                     f"  • {eur(pec)} (part garantie) : facture à {EMAIL_GESTION}, mentionnant le "
+                     f"n° de dossier {d.assure_id} et la référence {d.id} — sa réception vaut "
+                     f"validation de la prestation et déclenche le paiement ;\n"
+                     f"  • {eur(rac)} (reste à charge) : à facturer DIRECTEMENT à l'assuré-aidant, "
+                     f"hors garantie.\n"
+                     f"Suivi de la demande : {self._lien_pro(d)}")
+        else:
+            corps = (f"Votre devis ({eur(d.total)}) est accepté : la prestation peut être réalisée.\n"
                      f"Après réalisation, adressez votre facture à {EMAIL_GESTION} en mentionnant :\n"
                      f"  • le n° de dossier : {d.assure_id}\n"
                      f"  • la référence du devis : {d.id}\n"
-                     f"  • le montant, au plus égal au montant engagé : {eur(d.total)}\n"
+                     f"  • le montant, au plus égal au montant engagé : {eur(pec)}\n"
                      f"La réception de votre facture vaut validation de la prestation et "
                      f"déclenche le paiement (aucune autre démarche).\n"
                      f"Suivi de la demande : {self._lien_pro(d)}")
+        self.s.email(pro.email or f"{pro.nom} (adresse du catalogue aidance-pro)",
+                     f"[MPA] Devis accepté — {d.id} — à facturer après réalisation", corps)
         return d
 
     def refuser(self, devis_id) -> Devis:       # F-48 (aidant)
@@ -758,13 +819,14 @@ class MoteurDevis:
         d = self.s.devis[devis_id]
         if d.statut != "facturée":
             raise ValueError("Paiement impossible : facture non reçue (RG-52).")
-        m = D(montant) if montant not in (None, "") else d.total
-        if m > d.total:
-            raise IntegriteError(f"Paiement {eur(m)} > montant engagé {eur(d.total)} (RG-53).")
+        engage = d.montant_engage if d.montant_engage is not None else d.total
+        m = D(montant) if montant not in (None, "") else engage
+        if m > engage:
+            raise IntegriteError(f"Paiement {eur(m)} > montant engagé {eur(engage)} (RG-53).")
         p = self.s.prestations[d.prestation_id]
         env = self.s.pmv(d.assure_id)
         env.payer(m, f"Paiement pro — {p.nom}", d.id, commentaire)
-        reliquat = (d.total - m).quantize(Decimal("0.01"))
+        reliquat = (engage - m).quantize(Decimal("0.01"))
         if reliquat > 0:
             env.desengager(reliquat, f"Reliquat (paiement partiel) — {p.nom}", d.id, commentaire)
         d.statut = "payé"
@@ -789,8 +851,10 @@ class MoteurDevis:
         if not (motif or "").strip():
             raise ValueError("Motif obligatoire pour annuler (F-25).")
         p = self.s.prestations[d.prestation_id]
-        env = self.s.pmv(d.assure_id)
-        env.desengager(d.total, f"Annulation — {p.nom}", d.id, motif.strip())
+        engage = d.montant_engage if d.montant_engage is not None else d.total
+        if engage and engage > 0:
+            env = self.s.pmv(d.assure_id)
+            env.desengager(engage, f"Annulation — {p.nom}", d.id, motif.strip())
         d.statut = "annulé"
         d.motif_annulation = motif.strip()
         return d
@@ -1021,13 +1085,15 @@ def exporter(store: Store, quoi: str) -> str:
                 rows.append([a.id, m.date, m.type, m.montant, m.libelle, m.ref, m.auteur, m.commentaire])
     elif quoi == "devis":
         rows = [["Reference", "N_dossier", "Prestation", "Professionnel", "Statut",
-                 "Quantite", "Total", "Date_engagement", "Date_facture",
+                 "Quantite", "Total", "Montant_engage", "Reste_a_charge",
+                 "Date_engagement", "Date_facture",
                  "Montant_paye", "Date_paiement", "Bordereau"]]
         for d in store.devis.values():
             p = store.prestations.get(d.prestation_id)
             rows.append([d.id, d.assure_id, p.nom if p else d.prestation_id,
                          store.pros[d.pro_id].nom, d.statut,
-                         d.quantite, d.total, d.date_engagement, d.date_facture,
+                         d.quantite, d.total, d.montant_engage, d.reste_a_charge,
+                         d.date_engagement, d.date_facture,
                          d.montant_paye, d.date_paiement, d.bordereau_id])
     elif quoi == "remboursements":
         rows = [["Reference", "N_dossier", "Libelle", "Motif", "Montant_demande",
@@ -1599,6 +1665,13 @@ def seed() -> Store:
 
     # D04 — forfait à prix fixe : « devisé » immédiatement (F-47), à accepter
     mv_.demander(claire.id, "PR-27", "Besoin de parler de mon épuisement.")
+
+    # D05 — devisé AU-DELÀ du disponible : démontre le RESTE À CHARGE (RG-43).
+    #       L'acceptation ouvrira la confirmation chiffrée côté assuré-aidant.
+    d5 = mv_.demander(claire.id, "PR-54",
+                      "Garde de nuit récurrente : 3 nuits par semaine pendant un mois.",
+                      quantite=60)
+    mv_.etablir(d5.id, 60, "60 h sur 4 semaines, planning à caler ensemble.")
 
     # R01 — validée (engagée) → à marquer payée ; R02 — soumise à instruire.
     # Justificatifs de démonstration réellement consultables (F-51).

@@ -139,9 +139,11 @@ async function api(method, path, body){
   const r=await fetch(API+path,{method,headers:{"Content-Type":"application/json"},
     body:body!==undefined?JSON.stringify(body):undefined});
   const data=await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(data.error||("Erreur "+r.status));
+  if(!r.ok){ const err=new Error(data.error||("Erreur "+r.status)); err.status=r.status; err.data=data; throw err; }
   return data;
 }
+
+function fq(q){ if(q==null||q==="") return ""; const t=String(q).replace(/0+$/,"").replace(/[.,]$/,""); return (t||"0").replace(".",","); }
 
 async function refresh(){
   if(PRO_JETON) return refreshPro();          // le formulaire pro ne voit QUE sa demande
@@ -706,6 +708,20 @@ Maximum 5 besoins (du plus urgent au moins urgent) et 3 relances.`;
 }
 
 /* ═══════ §5 · Trouver un pro (F-46) ═══════ */
+/* — estimation de la demande : volume × tarif, et reste à charge prévisible
+     si l'estimation dépasse le disponible (RG-43 — information AVANT demande) — */
+function aidEstimDv(p){
+  const q=parseFloat(String(AID.demandeQty).replace(",","."));
+  if(isNaN(q)||q<=0) return `<span class="muted" style="font-size:11.5px">Indiquez un volume pour estimer le montant.</span>`;
+  const est=+(q*Number(p.prix)).toFixed(2);
+  const a=aidCur(); const dispo=a&&a.pmv?Number(a.pmv.disponible):null;
+  let html=`<b style="font-size:13.5px">≈ ${eur(est)}</b>`;
+  if(dispo!=null&&est>dispo){
+    html+=`<div style="font-size:11.5px;color:var(--goldDk);background:var(--goldLt);border-radius:8px;padding:5px 8px;margin-top:4px;line-height:1.4">Au-delà de votre disponible (${eur(dispo)}) : <b>reste à charge estimé ≈ ${eur(+(est-dispo).toFixed(2))}</b>, à régler directement au professionnel. Vous pourrez confirmer (ou renoncer) au moment d'accepter le devis.</div>`;
+  }
+  return html;
+}
+
 function aidCatalogue(a){
   const ok=!!a.pmv_pret;
   const f=AID.cat;
@@ -739,6 +755,12 @@ function aidCatalogue(a){
     const open=AID.demandePid===r.id;
     const btn = open
       ? `<div style="margin-top:11px;border-top:1px solid var(--line);padding-top:10px">
+           ${r.forfait?"":`<label style="font-size:11px;font-weight:700;color:var(--muted)">Volume souhaité <span style="font-weight:500">(en ${r.unite==="Par jour"?"jours":"heures"} — le pro le confirmera ou l'ajustera dans son devis)</span></label>
+           <div class="row" style="align-items:center;margin:4px 0 8px">
+             <input class="in" id="a-dv-qty" inputmode="decimal" placeholder="ex. 6" value="${esc(AID.demandeQty)}" style="max-width:120px;font-weight:700">
+             <span class="muted" style="font-size:12px">× ${eur(r.prix)}</span>
+             <span id="a-dv-estim" style="flex:1;min-width:180px">${aidEstimDv(r)}</span>
+           </div>`}
            <label style="font-size:11px;font-weight:700;color:var(--muted)">Un mot pour le pro <span style="font-weight:500">(facultatif : votre besoin, vos disponibilités…)</span></label>
            <textarea class="in" id="a-dv-msg" rows="2" placeholder="ex. Besoin d'aide pour le dossier MDPH, plutôt le mercredi après-midi." style="resize:vertical;margin-top:4px"></textarea>
            <div class="row" style="margin-top:8px">
@@ -788,7 +810,7 @@ function aidCatalogue(a){
 function aidSeed(){ return {
   tab:"accueil", boundTo:null, taches:[], charge:[],
   recit:"", consent:false, loading:false, aiNote:null, besoins:[], relances:[], reponses:{}, parcours:[],
-  cat:{famille:"",metier:"",modalite:"",dept:""}, demandePid:null,
+  cat:{famille:"",metier:"",modalite:"",dept:""}, demandePid:null, demandeQty:"", rac:null,
   profilEdit:false, pfdEdit:null, pfdAddOpen:false,
   analyseTexte:"", analyseEdit:false, analyseLoading:false,
   justif:null, catTitre:"",
@@ -1006,17 +1028,23 @@ function aidPrestations(a){
     let statusLine="", actions="";
     if(d.statut==="demande") statusLine=`En attente du chiffrage du professionnel.`;
     else if(d.statut==="devisé"){
-      statusLine=`Devis reçu : <b>${eur(d.total)}</b>${d.quantite?` (${d.quantite} × ${eur(p.prix)})`:""}. L'accepter <b>engage immédiatement</b> ce montant sur votre PMV (RG-51).`;
+      const dispo=Number((a.pmv||{}).disponible), depasse=dispo>=0&&Number(d.total)>dispo;
+      statusLine=`Devis reçu : <b>${eur(d.total)}</b>${d.quantite?` (${fq(d.quantite)} × ${eur(p.prix)})`:""}. L'accepter <b>engage immédiatement</b> ce montant sur votre PMV (RG-51).`
+        +(depasse?`<div style="font-size:12px;color:var(--goldDk);background:var(--goldLt);border-radius:9px;padding:7px 10px;margin-top:6px;line-height:1.45">Ce devis dépasse votre disponible (${eur(dispo)}) : la garantie prendra en charge ${eur(dispo)} et <b>${eur(+(Number(d.total)-dispo).toFixed(2))} resteront à votre charge</b>, à régler directement au professionnel. Une confirmation chiffrée vous sera demandée si vous acceptez (RG-43).</div>`:"");
       actions=a.pmv_etat==="bloque"?`<div class="muted" style="font-size:12px">PMV bloqué — acceptation impossible.</div>`
         :`<button class="btn teal" data-act="a-dv-accepter" data-id="${esc(d.id)}">Accepter (${eur(d.total)})</button>
           <button class="btn ghost" data-act="a-dv-refuser" data-id="${esc(d.id)}">Refuser</button>`;
     }
-    else if(d.statut==="engagé") statusLine=`<b>${eur(d.total)}</b> engagés sur votre PMV — prestation réalisée par ${esc(proNom)}, qui adressera sa facture directement au gestionnaire. <span class="muted">Le paiement interviendra après réception de la facture ; un souci avec la prestation ? Contactez un conseiller.</span>`;
+    else if(d.statut==="engagé") statusLine=(Number(d.reste_a_charge)>0
+        ?`<b>${eur(d.montant_engage)}</b> pris en charge (engagés sur votre PMV) · <b>${eur(d.reste_a_charge)} à votre charge</b>, que ${esc(proNom)} vous facturera directement (confirmé le ${dateFR(d.date_engagement)}).`
+        :`<b>${eur(d.total)}</b> engagés sur votre PMV — prestation réalisée par ${esc(proNom)}, qui adressera sa facture directement au gestionnaire.`)
+        +` <span class="muted">Le paiement interviendra après réception de la facture ; un souci avec la prestation ? Contactez un conseiller.</span>`;
     else if(d.statut==="facturée")
       statusLine=`Facture du professionnel reçue le ${dateFR(d.date_facture)} — elle vaut validation de la prestation. <b>Paiement en préparation par le gestionnaire</b> ; vous serez notifié par e-mail (F-24). Un souci avec cette prestation ? Contactez un conseiller sans attendre.`;
     else if(d.statut==="payé"){
-      const partiel=d.montant_paye&&Number(d.montant_paye)<Number(d.total);
-      statusLine=`Payé ${eur(d.montant_paye)} au professionnel le ${dateFR(d.date_paiement)}${partiel?` — paiement partiel, ${eur(Number(d.total)-Number(d.montant_paye))} recrédités sur votre disponible`:""}.${d.commentaire_paiement?` <span class="muted">« ${esc(d.commentaire_paiement)} »</span>`:""}`;
+      const eng=Number(d.montant_engage!=null?d.montant_engage:d.total);
+      const partiel=d.montant_paye&&Number(d.montant_paye)<eng;
+      statusLine=`Payé ${eur(d.montant_paye)} au professionnel le ${dateFR(d.date_paiement)}${partiel?` — paiement partiel, ${eur(+(eng-Number(d.montant_paye)).toFixed(2))} recrédités sur votre disponible`:""}${Number(d.reste_a_charge)>0?` <span class="muted">(+ ${eur(d.reste_a_charge)} de reste à charge réglés par vous directement au professionnel)</span>`:""}.${d.commentaire_paiement?` <span class="muted">« ${esc(d.commentaire_paiement)} »</span>`:""}`;
     }
     return `<div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
@@ -1107,6 +1135,22 @@ function aidDossier(a){
 
 /* — F-52 : modal « Contacter un conseiller » (aucun chatbot) — */
 let CONTACT={type:"rappel",msg:""};
+/* — RG-43 (amendé) : confirmation chiffrée du reste à charge avant engagement — */
+function racModal(){
+  const r=AID.rac||{};
+  const ligne=(lab,val,col)=>`<div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)"><span>${lab}</span><b style="color:${col||'var(--ink)'}">${val}</b></div>`;
+  return `<div class="modal-bg" data-act="a-rac-close"><div class="modal" style="max-width:460px" onclick="">
+    <div style="font-weight:800;font-size:16px;margin-bottom:4px">Reste à charge à confirmer</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:12px">Ce devis dépasse le disponible de votre PMV. Vous pouvez maintenir votre demande : la garantie règle sa part au professionnel, le reste vous sera facturé directement par lui (RG-43).</div>
+    ${ligne("Devis accepté", eur(r.total))}
+    ${ligne("Pris en charge par votre garantie", eur(r.prise_en_charge), "var(--teal)")}
+    ${ligne("Reste à votre charge (payé par vous au pro)", eur(r.reste_a_charge), "var(--goldDk)")}
+    <div class="row" style="margin-top:14px">
+      <button class="btn teal" data-act="a-rac-confirmer" style="flex:1">Maintenir — j'accepte ${eur(r.reste_a_charge)} à ma charge</button>
+      <button class="btn ghost" data-act="a-rac-close">Renoncer pour l'instant</button>
+    </div></div></div>`;
+}
+
 function contactModal(){
   const types=[["appel","📞 Être appelé maintenant"],["rappel","🕐 Être rappelé"],["message","✉️ Laisser un message"],["rendez-vous","📅 Prendre rendez-vous"]];
   return `<div class="modal-bg" data-act="a-contact-close">
@@ -1159,6 +1203,7 @@ function viewProForm(){
   let body="";
   if(d.statut==="demande"){
     const uniteLabel=p.unite==="Par jour"?"jours":"heures";
+    if(PROF.devisQty===""&&d.quantite_souhaitee) PROF.devisQty=fq(d.quantite_souhaitee);
     const q=parseFloat(String(PROF.devisQty).replace(",","."));
     const ok=!isNaN(q)&&q>0, total=ok?+(q*pu).toFixed(2):null;
     body=`<div>
@@ -1187,13 +1232,17 @@ function viewProForm(){
       ${d.message_pro?`<div class="muted" style="margin-top:8px;font-size:12px">Votre mot : « ${esc(d.message_pro)} »</div>`:""}
       <div class="muted" style="margin-top:10px;font-size:12px;line-height:1.45">ⓘ En attente d'acceptation. L'acceptation par l'assuré-aidant engage automatiquement le montant sur son PMV (RG-51) — vous serez prévenu par e-mail, avec ce même lien.</div>`;
   } else if(d.statut==="engagé"){
+    const rac=Number(d.reste_a_charge)>0, eng=d.montant_engage!=null?d.montant_engage:d.total;
     body=`<div style="padding:14px 16px;border-radius:13px;background:var(--purpleLt)">
-        <div style="font-weight:800;font-size:14.5px">${eur(d.total)} engagés — devis accepté le ${dateFR(d.date_engagement)}</div>
-        <div style="font-size:12.5px;margin-top:6px;line-height:1.55">Réalisez la prestation, puis <b>adressez votre facture à ${esc(mail)}</b> en mentionnant
+        <div style="font-weight:800;font-size:14.5px">${rac?`${eur(d.total)} acceptés — dont ${eur(eng)} pris en charge par la garantie`:`${eur(d.total)} engagés`} — devis accepté le ${dateFR(d.date_engagement)}</div>
+        ${rac?`<div style="font-size:12.5px;margin-top:6px;line-height:1.55">L'assuré-aidant a confirmé un <b>reste à charge de ${eur(d.reste_a_charge)}</b>. Après réalisation, établissez <b>deux facturations</b> :<br>
+        • <b>${eur(eng)}</b> (part garantie) : facture à <b>${esc(mail)}</b>, avec le n° de dossier <b>${esc(d.dossier)}</b> et la référence <b>${esc(d.ref)}</b> — sa réception vaut validation et déclenche le paiement ;<br>
+        • <b>${eur(d.reste_a_charge)}</b> (reste à charge) : à facturer <b>directement à l'assuré-aidant</b>, hors garantie.</div>`
+        :`<div style="font-size:12.5px;margin-top:6px;line-height:1.55">Réalisez la prestation, puis <b>adressez votre facture à ${esc(mail)}</b> en mentionnant
         le n° de dossier <b>${esc(d.dossier)}</b>, la référence <b>${esc(d.ref)}</b> et un montant au plus égal
-        au montant engagé (${eur(d.total)} — RG-53).<br>
+        au montant engagé (${eur(eng)} — RG-53).<br>
         <b>La réception de votre facture vaut validation de la prestation</b> et déclenche le paiement —
-        aucune autre démarche n'est attendue de votre part.</div></div>`;
+        aucune autre démarche n'est attendue de votre part.</div>`}</div>`;
   } else if(d.statut==="facturée"){
     body=`<div style="padding:14px 16px;border-radius:13px;background:var(--tealLt)">
       <div style="font-weight:800;font-size:14px">✓ Facture reçue le ${dateFR(d.date_facture)}</div>
@@ -1212,7 +1261,7 @@ function viewProForm(){
       <div><div style="font-weight:800;font-size:16px">${esc(p.nom||"")}</div>
         <div class="muted" style="font-size:12.5px">Dossier <b>${esc(d.dossier)}</b> · ${forfait?`forfait ${eur(p.prix)}`:`${eur(p.prix)} / ${p.unite==="Par jour"?"jour":"heure"}`} · réf. ${esc(d.ref)} · ${esc(d.pro_nom)}</div></div>
       <span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}</span></div>
-    ${d.besoin?`<div style="font-size:13px;background:var(--paper);border-radius:11px;padding:11px 13px;margin-bottom:14px;line-height:1.45">Besoin exprimé : « ${esc(d.besoin)} »</div>`:""}
+    ${d.besoin||d.quantite_souhaitee?`<div style="font-size:13px;background:var(--paper);border-radius:11px;padding:11px 13px;margin-bottom:14px;line-height:1.45">${d.besoin?`Besoin exprimé : « ${esc(d.besoin)} »`:""}${d.quantite_souhaitee?`${d.besoin?"<br>":""}<b>Volume souhaité : ${fq(d.quantite_souhaitee)} ${p.unite==="Par jour"?"jour(s)":"heure(s)"}</b> <span class="muted">— à confirmer ou ajuster dans votre devis</span>`:""}</div>`:""}
     ${dvStepper({statut:d.statut,motif_refus:d.motif_refus,motif_annulation:d.motif_annulation})}
     ${body}</div>
     <div class="card" style="background:var(--paper)"><div style="font-size:12px;line-height:1.5"><b>Facturation (F-62, hors outil) :</b>
@@ -1351,6 +1400,7 @@ function gDossierDetail(a){
       return `<div style="display:flex;gap:9px;align-items:center;font-size:12px;padding:7px 11px;border-radius:9px;background:var(--paper);flex-wrap:wrap">
         <b style="white-space:nowrap">${esc(d.id.split("-").pop())}</b><span style="flex:1">${esc(p.nom||"")}</span>
         <span style="white-space:nowrap">${d.total?eur(d.total):"—"}</span>
+        ${Number(d.reste_a_charge)>0?`<span class="chip" style="background:var(--goldLt);color:var(--goldDk)">RAC ${eur(d.reste_a_charge)}</span>`:""}
         <span class="chip" style="color:${st[2]};background:${st[2]}18">${st[0]}</span>
         ${attentePro?`<a href="${esc(lienPro(d.jeton))}" target="_blank" rel="noopener" title="Lien sécurisé adressé au professionnel par e-mail (A-1a) — à lui renvoyer si besoin" style="font-size:11px;color:var(--teal);font-weight:700;text-decoration:none">formulaire pro ↗</a>`:""}
         ${d.statut==="engagé"?`<button class="btn ghost" data-act="g-facture" data-id="${esc(d.id)}" style="padding:3px 8px;font-size:11px">Facture reçue</button>`:""}
@@ -1397,7 +1447,8 @@ function gPaiements(){
         <b style="font-size:11.5px;white-space:nowrap">${esc(d.id)}</b>
         <span style="flex:1;min-width:160px">${esc(p.nom||"")}<span class="muted" style="font-size:10.5px"> · ${esc(A_proNom(d.pro_id))} · ${esc(gAssure(d.assure_id).nom_complet)} — ${esc(d.assure_id)}</span></span>
         ${ja!=null?`<span class="chip" style="${tard?'background:var(--goldLt);color:var(--goldDk)':'background:var(--paper)'}">${tard?"⚠ ":""}engagé il y a ${ja} j</span>`:""}
-        <span style="font-weight:800;white-space:nowrap">${eur(d.total)}</span>
+        ${Number(d.reste_a_charge)>0?`<span class="chip" style="background:var(--goldLt);color:var(--goldDk)" title="Part facturée directement à l'assuré-aidant par le pro (RG-43)">+ RAC ${eur(d.reste_a_charge)}</span>`:""}
+        <span style="font-weight:800;white-space:nowrap">${eur(d.montant_engage!=null?d.montant_engage:d.total)}</span>
         <button class="btn teal" data-act="g-facture" data-id="${esc(d.id)}" style="padding:4px 10px;font-size:11.5px">Facture reçue</button>
         <button class="btn ghost" data-act="g-annuler-open" data-id="${esc(d.id)}" style="padding:4px 9px;font-size:11px;color:var(--bad)">Annuler…</button>
       </div>`;}).join("")}</div>`:"";
@@ -1406,7 +1457,9 @@ function gPaiements(){
   devis.forEach(d=>{const k="pro:"+d.pro_id;let g=grps.find(x=>x.k===k);
     if(!g){g={k,nom:A_proNom(d.pro_id),type:"Professionnel — coordonnées bancaires sur facture (F-62)",lignes:[]};grps.push(g);}
     const p=P_presta(d.prestation_id);
-    g.lignes.push({ref:d.id,dossier:d.assure_id,assure:gAssure(d.assure_id).nom_complet,lib:p.nom||"",montant:Number(d.total),partiel:true});});
+    g.lignes.push({ref:d.id,dossier:d.assure_id,assure:gAssure(d.assure_id).nom_complet,
+      lib:(p.nom||"")+(Number(d.reste_a_charge)>0?` — part garantie (+ ${eur(d.reste_a_charge)} de reste à charge facturés directement à l'assuré)`:""),
+      montant:Number(d.montant_engage!=null?d.montant_engage:d.total),partiel:true});});
   rembs.forEach(r=>{const k="aid:"+r.assure_id;let g=grps.find(x=>x.k===k);
     const a=gAssure(r.assure_id);
     if(!g){g={k,nom:a.nom_complet+" (assuré-aidant)",type:"Remboursement — IBAN du dossier "+r.assure_id,lignes:[]};grps.push(g);}
@@ -1541,7 +1594,7 @@ function gAlertes(){
     return `<div class="card" style="border:1px solid var(--gold)">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span class="chip" style="color:#fff;background:var(--goldDk)">Facture attendue</span>
-        <b style="font-size:13.5px">${esc(x.devis_id)}</b><span class="muted" style="font-size:12px">· ${esc(p.nom||"")} · ${esc(A_proNom(d.pro_id))} · ${esc(gAssure(x.assure_id)?gAssure(x.assure_id).nom_complet:x.assure_id)} · engagé ${eur(d.total)}</span></div>
+        <b style="font-size:13.5px">${esc(x.devis_id)}</b><span class="muted" style="font-size:12px">· ${esc(p.nom||"")} · ${esc(A_proNom(d.pro_id))} · ${esc(gAssure(x.assure_id)?gAssure(x.assure_id).nom_complet:x.assure_id)} · engagé ${eur(d.montant_engage!=null?d.montant_engage:d.total)}${Number(d.reste_a_charge)>0?` (+ RAC ${eur(d.reste_a_charge)})`:""}</span></div>
       <div style="font-size:12.5px;margin-top:6px">${esc(x.detail)} — relancez le professionnel (e-mail du catalogue, hors outil${d.jeton?` ; son <a href="${esc(lienPro(d.jeton))}" target="_blank" rel="noopener" style="color:var(--teal);font-weight:700">formulaire de suivi ↗</a>`:""}).</div>
       <div class="row" style="margin-top:10px">
         <button class="btn teal" data-act="g-facture" data-id="${esc(x.devis_id)}">Facture reçue (vaut validation)</button>
@@ -1586,7 +1639,7 @@ function gModal(){
     const d=(STATE.devis||[]).find(v=>v.id===GM.ref)||{};
     return `<div class="modal-bg" data-act="g-modal-close"><div class="modal">
       <h2>Paiement partiel — ${esc(GM.ref)}</h2>
-      <div class="muted" style="font-size:12px;margin-bottom:10px">Montant engagé : <b>${eur(d.total)}</b>. Le reliquat retourne au disponible de l'assuré-aidant (F-22).</div>
+      <div class="muted" style="font-size:12px;margin-bottom:10px">Montant engagé (part garantie) : <b>${eur(d.montant_engage!=null?d.montant_engage:d.total)}</b>. Le reliquat retourne au disponible de l'assuré-aidant (F-22).</div>
       <div class="row">
         <div class="f" style="flex:0 1 160px"><label>Montant payé (€)</label><input class="in" id="gm-montant" placeholder="≤ ${esc(String(d.total))}" style="font-weight:800;font-size:15px"></div>
         <div class="f"><label>Commentaire (journalisé, visible par l'assuré-aidant)</label><input class="in" id="gm-comm" placeholder="ex. 4 h facturées sur 6 — accord avec le pro"></div>
@@ -1637,6 +1690,9 @@ document.addEventListener("input",(e)=>{
   if(e.target.dataset && e.target.dataset.gf!==undefined){ GEST.form[e.target.dataset.gf]=e.target.value; return; }
   if(e.target.id==="g-q"){ GEST.q=e.target.value; render();
     const el=$("#g-q"); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } return; }
+  if(e.target.id==="a-dv-qty"){ AID.demandeQty=e.target.value;
+    const p=P_presta(AID.demandePid); const el=$("#a-dv-estim");
+    if(el&&p) el.innerHTML=aidEstimDv(p); return; }
   if(e.target.id==="p-qty"){ PROF.devisQty=e.target.value;
     const pu=PRO_DATA&&PRO_DATA.prestation?Number(PRO_DATA.prestation.prix):NaN;
     const q=parseFloat(String(PROF.devisQty).replace(",","."));
@@ -1684,14 +1740,29 @@ document.addEventListener("click", async (e)=>{
     if(act==="a-fam"){ const v=b.dataset.v; AID.cat.famille=AID.cat.famille===v?"":v; AID.catTitre=""; render(); return; }
     if(act==="a-mod"){ const v=b.dataset.v; AID.cat.modalite=AID.cat.modalite===v?"":v; render(); return; }
     if(act==="a-cat-reset"){ AID.cat={famille:"",metier:"",modalite:"",dept:""}; AID.catTitre=""; render(); return; }
-    if(act==="a-demander-devis"){ AID.demandePid=(AID.demandePid===b.dataset.pid?null:b.dataset.pid); render(); return; }
+    if(act==="a-demander-devis"){ AID.demandePid=(AID.demandePid===b.dataset.pid?null:b.dataset.pid); AID.demandeQty=""; render(); return; }
     if(act==="a-demander-envoyer"){ const msg=($("#a-dv-msg")&&$("#a-dv-msg").value.trim())||"";
+      const q=parseFloat(String(AID.demandeQty).replace(",","."));
       await api("POST","/api/devis",{assure_id:AIDANT_ID,prestation_id:b.dataset.pid,message:msg,
+        quantite:(!isNaN(q)&&q>0)?String(q):undefined,
         lien_base:location.origin+location.pathname});
+      AID.demandeQty="";
       AID.demandePid=null; AID.tab="prestations"; await refresh(); toast("Demande envoyée — le pro reçoit un e-mail avec votre n° de dossier et un lien de chiffrage"); return; }
 
     /* ── Prestations (F-48, RG-45) ── */
-    if(act==="a-dv-accepter"){ await api("POST",`/api/devis/${id}/accepter`); await refresh(); toast("Devis accepté — montant engagé automatiquement sur votre PMV (RG-51)"); return; }
+    if(act==="a-dv-accepter"){
+      try{ await api("POST",`/api/devis/${id}/accepter`); }
+      catch(err){
+        if(err.status===409&&err.data&&err.data.reste_a_charge!==undefined){
+          AID.rac=Object.assign({ref:id},err.data); MODAL=racModal; render(); return; }
+        throw err;
+      }
+      await refresh(); toast("Devis accepté — montant engagé automatiquement sur votre PMV (RG-51)"); return; }
+    if(act==="a-rac-close"){ if(e.target!==b) return; AID.rac=null; MODAL=""; render(); return; }
+    if(act==="a-rac-confirmer"){ const rc=AID.rac;
+      await api("POST",`/api/devis/${rc.ref}/accepter`,{accepter_reste_a_charge:true});
+      AID.rac=null; MODAL=""; await refresh();
+      toast(`Demande maintenue — ${eur(rc.prise_en_charge)} engagés sur votre PMV, ${eur(rc.reste_a_charge)} à votre charge (le professionnel vous les facturera directement)`); return; }
     if(act==="a-dv-refuser"){ await api("POST",`/api/devis/${id}/refuser`); await refresh(); toast("Devis refusé"); return; }
 
     /* ── Remboursements côté assuré-aidant (F-51) ── */
