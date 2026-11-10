@@ -53,12 +53,16 @@ RG-53   Montant payé au pro ≤ montant engagé ; la facture (hors outil) porte
 RG-54   Le RENOUVELLEMENT du PMV est un acte manuel du gestionnaire,
         conditionné à une demande de renouvellement reçue et jugée valide
         (document hors outil) : crédit « Renouvellement » (montant libre) qui
-        reporte l'échéance d'un an ; le gestionnaire met à jour le NDD retenu
+        reporte l'échéance au jour anniversaire suivant ; le gestionnaire met à jour le NDD retenu
         si le PFD a changé de niveau (1–4, RG-13 — PFD principal synchronisé,
         changement journalisé et porté par l'e-mail F-24). Le NON-RENOUVELLEMENT est tracé (motif
         obligatoire) et notifié à l'assuré-aidant. AUCUN recrédit automatique ;
         l'outil notifie le gestionnaire PREAVIS_ECHEANCE_JOURS avant
-        l'échéance (F-30). Effets du non-renouvellement sur le solde : A-11.
+        l'échéance (F-30). Après non-renouvellement, le solde restant demeure
+        utilisable ; la collecte du reliquat prévue par les CG (deux ans après
+        la dernière indemnisation, information de l'assuré trois mois avant,
+        distribution à des associations choisies par le Comité de Mission)
+        est HORS OUTIL en V1 — fonction de clôture différée (RG-55).
 RG-60–63 Orientation : taxonomie fermée ; bilan validé fait foi ; assistant
         factuel, sans diagnostic ni prestataire nommé ; repli déterministe.
 
@@ -101,8 +105,15 @@ DELAI_FACTURE_JOURS = 30              # A-3 recyclé : alerte « facture attendu
 DELAI_BORDEREAU_JOURS = 3             # A-7 : alerte « bordereau non exécuté »
 EMAIL_GESTION = "gsa@assur-aidant.com"   # §9 / F-62 : destinataire des factures pros
 PRO_LIEN_MAX_OUVERTURES = 40          # A-1a : « usage limité » — plafond de consultations
-PREAVIS_ECHEANCE_JOURS = 7            # F-30 : notification avant l'échéance annuelle du PMV
-DUREE_GARANTIE_JOURS = 365            # F-30 : échéance = crédit initial + 1 an
+PREAVIS_ECHEANCE_JOURS = 7            # F-30 : notification avant l'échéance annuelle (jour anniversaire)
+# F-30/RG-54 — échéance au JOUR ANNIVERSAIRE : même jour et mois l'année
+# suivante (un 29 février reporte au 28 février).
+def plus_un_an(date_iso: str) -> str:
+    d = datetime.date.fromisoformat(date_iso)
+    try:
+        return d.replace(year=d.year + 1).isoformat()
+    except ValueError:                      # 29 février
+        return d.replace(year=d.year + 1, day=28).isoformat()
 REFERENCES_CONTRAT = [                 # référentiel INITIAL des références contrat —
     "GSA-2026-0001 — Branche détaillants en chaussures",   # la gestion des contrats
     "GSA-2026-0002 — Branche de l'édition",                # reste HORS outil (§1) ;
@@ -606,8 +617,7 @@ class MoteurDossiers:
         env = Enveloppe(a.id)
         self.s.enveloppes[a.id] = env
         env.crediter(montant, "Crédit initial", commentaire, "gestionnaire")
-        a.date_echeance = (datetime.date.today()
-                           + datetime.timedelta(days=DUREE_GARANTIE_JOURS)).isoformat()
+        a.date_echeance = plus_un_an(a.date_preinscription)
 
         if (lien_base or "").strip():
             self.s.lien_base = lien_base.strip()
@@ -648,8 +658,7 @@ class MoteurDossiers:
                     pfd.ndd = nd
         if motif == "Renouvellement":
             base = a.date_echeance or _today()
-            a.date_echeance = (datetime.date.fromisoformat(base)
-                               + datetime.timedelta(days=DUREE_GARANTIE_JOURS)).isoformat()
+            a.date_echeance = plus_un_an(base)
             a.echeance_traitee = ""
             a.non_renouvellement = {}
             self.s.email(a.email, f"[MPA] Votre PMV est renouvelé — {a.id}",
@@ -1776,9 +1785,13 @@ def seed() -> Store:
     #   Claire : préinscrite il y a 360 j → échéance à J+5 (fenêtre de préavis) ;
     #   Léa    : préinscrite il y a 25 j  → échéance à J+340.
     for _a, _jrest in ((claire, 5), (lea, 340)):
-        _pre = datetime.date.today() + datetime.timedelta(days=_jrest - DUREE_GARANTIE_JOURS)
+        _ech = datetime.date.today() + datetime.timedelta(days=_jrest)
+        try:
+            _pre = _ech.replace(year=_ech.year - 1)
+        except ValueError:                  # 29 février
+            _pre = _ech.replace(year=_ech.year - 1, day=28)
         _a.date_preinscription = _pre.isoformat()
-        _a.date_echeance = (_pre + datetime.timedelta(days=DUREE_GARANTIE_JOURS)).isoformat()
+        _a.date_echeance = _ech.isoformat()
         s.enveloppes[_a.id].mouvements[0].date = f"{_pre.isoformat()} 09:00"
         for _m in s.emails:
             if _m.objet == f"[MPA] Activez votre espace — dossier {_a.id}":

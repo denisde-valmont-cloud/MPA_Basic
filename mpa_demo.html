@@ -1599,11 +1599,12 @@ function gEcheances(){
   const nonRen=ech.filter(e=>e.statut==="non_renouvele");
   const rappel=`<div class="card" style="background:var(--blueLt);border-color:var(--blue);font-size:12.5px;line-height:1.5">
     <b>Fin d'échéance annuelle du PMV (RG-54).</b> L'outil vous notifie ${pr.preavis_echeance_jours} jours avant
-    l'échéance (crédit initial + 1 an). <b>Aucun recrédit automatique</b> : à réception d'une demande de
+    l'échéance (jour anniversaire de la pré-inscription). <b>Aucun recrédit automatique</b> : à réception d'une demande de
     renouvellement <b>valide</b> (document hors outil), « Renouveler » crédite le PMV et reporte l'échéance d'un an ;
-    sinon, « Ne pas renouveler » trace la décision (motif interne) et notifie l'assuré-aidant. Effets du
-    non-renouvellement sur le solde restant : à l'arbitrage A-11 (en V1, le PMV n'est pas bloqué automatiquement —
-    utilisez « Bloquer » (F-27) au besoin).</div>`;
+    sinon, « Ne pas renouveler » trace la décision (motif interne) et notifie l'assuré-aidant. Après
+    non-renouvellement, le solde restant demeure utilisable (pas de blocage automatique — « Bloquer » (F-27) au besoin) ;
+    la collecte du reliquat prévue par les CG (deux ans après la dernière indemnisation, information trois mois
+    avant) est hors outil en V1 (RG-55).</div>`;
   const jTxt=j=>j>=0?`dans ${j} j`:`dépassée de ${-j} j`;
   const ligne=e=>{
     const a=gAssure(e.assure_id)||{}, env=a.pmv||{};

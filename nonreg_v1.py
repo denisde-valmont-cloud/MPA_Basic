@@ -393,10 +393,93 @@ T("Baromètre : lecture LLM absente → null (repli client)", c == 200 and r["te
 _, cat, _ = req("GET", "/api/catalogue")
 T("F-72 catalogue aidance-pro chargé (source explicite)", len(cat["prestations"]) >= 80 and cat["source"] in ("snapshot", "aidance-pro"))
 
+# ── F-30/RG-54 : échéance annuelle du PMV — renouvellement manuel ────────
+import datetime as _dt
+_, pa, _ = req("GET", f"/api/assures/{paul}")
+def _ann(d):
+    try:
+        return d.replace(year=d.year + 1)
+    except ValueError:                      # 29 février
+        return d.replace(year=d.year + 1, day=28)
+T("F-30 échéance posée à la pré-inscription (jour anniversaire, un an plus tard)",
+  pa["date_echeance"] == _ann(_dt.date.today()).isoformat())
+_avs = [req("GET", f"/api/assures/{i}")[1] for i in (cla["id"], lea["id"])]
+T("RG-54 jeu d'essai cohérent : échéance au jour anniversaire de la préinscription, crédit initial daté du même jour",
+  all(_dt.date.fromisoformat(v["date_echeance"])
+      == _ann(_dt.date.fromisoformat(v["date_preinscription"]))
+      and v["pmv"]["mouvements"][0]["date"][:10] == v["date_preinscription"]
+      for v in _avs))
+_, st, _ = req("GET", "/api/state")
+ech = {e["assure_id"]: e for e in st["echeances"]}
+T("F-30 pilotage : Claire à J-5 « a_traiter », Léa « a_venir » ; préavis paramétré (7 j)",
+  ech[cla["id"]]["statut"] == "a_traiter" and ech[cla["id"]]["jours"] == 5
+  and ech[lea["id"]]["statut"] == "a_venir"
+  and st["parametres"]["preavis_echeance_jours"] == 7)
+_, al, _ = req("GET", "/api/alertes")
+T("F-70 alerte « echeance » dans la fenêtre de préavis — aucune action automatique",
+  any(x["type"] == "echeance" and x["assure_id"] == cla["id"]
+      and "RG-54" in x["detail"] for x in al["alertes"]))
+c, _r, _ = req("POST", f"/api/assures/{cla['id']}/crediter", {"montant": "100", "motif": "Prime"})
+T("RG-54 motif de crédit contrôlé (initial/renouvellement/correction)", c == 400)
+_, av0, _ = req("GET", f"/api/assures/{cla['id']}")
+e0 = av0["pmv"]
+c, av, _ = req("POST", f"/api/assures/{cla['id']}/crediter",
+               {"montant": "1500", "motif": "Renouvellement",
+                "commentaire": "Demande de renouvellement reçue le 05/11, valide"})
+att = _ann(_dt.date.fromisoformat(av0["date_echeance"])).isoformat()
+_, al2, _ = req("GET", "/api/alertes")
+T("RG-54 renouvellement : crédit journalisé, échéance reportée d'un an, alerte éteinte",
+  c == 200 and av["date_echeance"] == att
+  and Decimal(av["pmv"]["credit_cumule"]) == Decimal(e0["credit_cumule"]) + Decimal("1500")
+  and Decimal(av["pmv"]["disponible"]) == Decimal(e0["disponible"]) + Decimal("1500")
+  and any(m["libelle"] == "Renouvellement" for m in av["pmv"]["mouvements"])
+  and not any(x["type"] == "echeance" and x["assure_id"] == cla["id"] for x in al2["alertes"]))
+_, ml, _ = req("GET", "/api/emails")
+T("F-24 assuré-aidant notifié du renouvellement (nouvelle échéance citée)",
+  any("renouvelé" in e["objet"] and cla["id"] in e["objet"] and att in e["corps"]
+      for e in ml["emails"]))
+_, avc, _ = req("GET", f"/api/assures/{cla['id']}")
+c, _r, _ = req("POST", f"/api/assures/{cla['id']}/crediter",
+               {"montant": "100", "motif": "Renouvellement", "ndd": "5"})
+_, avc2, _ = req("GET", f"/api/assures/{cla['id']}")
+T("RG-13 au renouvellement : NDD 5 refusé — aucun crédit ni report appliqué",
+  c == 400 and avc2["pmv"]["credit_cumule"] == avc["pmv"]["credit_cumule"]
+  and avc2["ndd"] == avc["ndd"] and avc2["date_echeance"] == avc["date_echeance"])
+c, _r, _ = req("POST", f"/api/assures/{lea['id']}/non-renouvellement", {"motif": "  "})
+T("RG-54 non-renouvellement : motif obligatoire", c == 400)
+c, avl, _ = req("POST", f"/api/assures/{lea['id']}/non-renouvellement",
+                {"motif": "Aucune demande de renouvellement recue"})
+_, st2, _ = req("GET", "/api/state")
+e2 = {e["assure_id"]: e for e in st2["echeances"]}[lea["id"]]
+_, ml2, _ = req("GET", "/api/emails")
+T("RG-54 non-renouvellement tracé (date + échéance + motif interne), piloté « non_renouvele »",
+  c == 200 and avl["non_renouvellement"]["motif"].startswith("Aucune demande")
+  and avl["non_renouvellement"]["echeance"] == avl["date_echeance"]
+  and e2["statut"] == "non_renouvele")
+T("F-24 assuré-aidant notifié du non-renouvellement — sans le motif interne",
+  any("pas été renouvelée" in e["objet"] and lea["id"] in e["objet"]
+      and "Aucune demande" not in e["corps"] for e in ml2["emails"]))
+c, avl2, _ = req("POST", f"/api/assures/{lea['id']}/crediter",
+                 {"montant": "800", "motif": "Renouvellement", "ndd": "2"})
+T("RG-54 renouvellement tardif possible : trace effacée, échéance reportée",
+  c == 200 and not avl2["non_renouvellement"]
+  and avl2["date_echeance"] > avl["date_echeance"])
+T("F-30/RG-13 renouvellement : NDD retenu mis à jour (3 → 2), PFD principal synchronisé, changement journalisé",
+  avl2["ndd"] == 2 and avl2["aides"][0]["ndd"] == 2
+  and any("NDD retenu : 3 → 2" in (mv.get("commentaire") or "") for mv in avl2["pmv"]["mouvements"]))
+_, ml3, _ = req("GET", "/api/emails")
+T("F-24 e-mail de renouvellement : nouveau NDD cité (sans l'ancien barème ni le motif interne)",
+  any("renouvelé" in e["objet"] and lea["id"] in e["objet"] and "NDD 2" in e["corps"]
+      for e in ml3["emails"]))
+c, csv, _ct = req("GET", "/api/exports/dossiers.csv")
+T("F-28 export dossiers : colonnes Date_echeance / Non_renouvele",
+  "Date_echeance" in csv.splitlines()[0] and "Non_renouvele" in csv.splitlines()[0])
+
 httpd.shutdown()
+
 print("─"*74)
 print(f"  {N} vérifications · {N-len(FAILS)} OK · {len(FAILS)} échec(s)")
 if FAILS:
     for f in FAILS: print("   ✗", f)
     sys.exit(1)
-print("  CONFORME aux spécifications V1.1.")
+print("  CONFORME aux spécifications fonctionnelles V1 (1.0).")
