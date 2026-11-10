@@ -20,7 +20,7 @@ trace dans MPA** (recrédit « Renouvellement » ou non-renouvellement motivé �
 | Onglet « Remboursements » mêlant instruction et paiement | **« Demandes de remboursement »** : l'instruction seule, **groupée par dossier** (nom de l'assuré + solde / engagé / disponible du PMV en tête de groupe) ; une demande **validée bascule dans « Paiements à effectuer »**, file **groupée par bénéficiaire** |
 | Déclaration de réalisation (pro) puis confirmation du service fait (assuré-aidant), libération à J+7 | **Ni l'une ni l'autre** : à l'acceptation, le pro reçoit les informations à porter sur sa facture ; **la réception de la facture, enregistrée par le gestionnaire (« Facture reçue »), vaut validation de la prestation** (RG-45, confiance dans le réseau) et met la ligne en file de paiement. Litiges réglés par le gestionnaire : annulation motivée (désengagement intégral) ou paiement partiel (F-25). Vigilances F-70 : **facture attendue** au-delà de 30 j (A-3 recyclé), **bordereau non exécuté** au-delà de 3 j (A-7) et **PMV en fin d'échéance** à J−7 (F-30) |
 | PMV 3 compartiments | **5 chiffres + 2 équations** affichées : crédit cumulé − payé = solde ; solde − engagé = disponible (F-43) |
-| Renouvellement annuel entièrement hors outil, gestionnaire non averti | **Échéance annuelle tracée au dossier** (crédit initial + 1 an — RG-54) : alerte **J−7** (F-70), onglet **« Échéances »** (à traiter / à venir / non renouvelés) ; **aucun recrédit automatique** — sur demande de renouvellement **valide** (reçue hors outil), crédit « Renouvellement » qui **reporte l'échéance d'un an** ; sinon **non-renouvellement tracé** (motif interne obligatoire) et notifié sobrement à l'assuré-aidant (F-24) ; renouvellement tardif possible ; effets sur le solde restant : arbitrage **A-11** |
+| Renouvellement annuel entièrement hors outil, gestionnaire non averti | **Échéance annuelle tracée au dossier** (crédit initial + 1 an — RG-54) : alerte **J−7** (F-70), onglet **« Échéances »** (à traiter / à venir / non renouvelés) ; **aucun recrédit automatique** — sur demande de renouvellement **valide** (reçue hors outil), crédit « Renouvellement » qui **reporte l'échéance d'un an** ; sinon **non-renouvellement tracé** (motif interne obligatoire) et notifié sobrement à l'assuré-aidant (F-24) ; au renouvellement, le gestionnaire saisit le montant **et met à jour le NDD retenu** si le PFD a changé de niveau (RG-13, PFD principal synchronisé, changement journalisé) ; renouvellement tardif possible ; effets sur le solde restant : arbitrage **A-11** |
 | Dépassement du disponible = demande refusée | **Volume souhaité** saisi dès la demande (estimation immédiate, le pro confirme ou ajuste) ; un devis **peut dépasser le disponible** (RG-43 amendé) : engagement PMV **plafonné au disponible**, l'excédent = **reste à charge confirmé par l'assuré-aidant** (chiffres à l'appui), facturé **directement** par le pro à l'assuré — l'e-mail au pro détaille les **deux facturations** |
 | Écran « Pro » permanent (3e rôle dans l'en-tête) | **Pas de compte pro** : un **jeton par demande** dans l'e-mail simulé ouvre un **formulaire mono-demande** (`/?pro=<jeton>` → `GET /api/pro/<jeton>`, **minimisé** : n° de dossier + besoin exprimé + prestation — jamais l'identité de l'aidant ni le PMV) ; chiffrer/décliner puis déclarer la réalisation ; plafond d'ouvertures, lien consultatif après clôture |
 | — | **Blocage/déblocage** du PMV (F-27, RG-50), **n° de dossier GSA-AA-NNNNN** (§9) avec références dérivées -Dnn/-Rnn, **contact conseiller** (F-52), **commentaires du gestionnaire** sur chaque mouvement (F-26), **justificatif réellement déposé et consultable** (F-51), **exports CSV** (F-28), **e-mails simulés** journalisés |
@@ -36,7 +36,7 @@ mpa_api.py      API HTTP (stdlib) — table des routes en tête ; sert le shell
                 sur / ; routes /api/pro/<jeton> (vue minimisée) pour le pro.
 mpa_demo.html   Shell (HTML/JS sans dépendance) : 2 espaces + formulaire pro
                 par lien, sommaire §1–§9.
-nonreg_v1.py    LA SPÉCIFICATION EXÉCUTABLE : 104 vérifications rejouant chaque
+nonreg_v1.py    LA SPÉCIFICATION EXÉCUTABLE : 107 vérifications rejouant chaque
                 exigence F-xx/RG-xx de bout en bout.  python3 nonreg_v1.py
 render_v1.py    Harness de rendu : 49 vues des 3 profils d'usage sur le jeu
                 d'essai réel + replis IA (requiert node).
@@ -63,7 +63,7 @@ Procfile, render.yaml, requirements.txt : inchangés.
 | F-52 | `contacter` (appel/rappel/message/rendez-vous, aucun chatbot) — bouton permanent, visible au dossier gestionnaire | 82–83 |
 | F-60/F-62/F-63 | `etablir` (message pro) / `refuser_pro` (motif) — **exclusivement via `/api/pro/<jeton>`** ; consignes de facturation affichées ; paiement ≤ engagé | 28, 36–37 |
 | F-21 | `crediter` (Crédit initial · **Renouvellement** · Correction), journalisé, irréversible, correction négative tracée | 70–73, 97 |
-| **F-30/RG-54** | **Échéance annuelle du PMV** : posée à la pré-inscription (crédit initial + 1 an, `date_echeance`) ; alerte **J−7** (`PREAVIS_ECHEANCE_JOURS`) + onglet « Échéances » (`echeances()` : à traiter / à venir / non renouvelés) ; **renouvellement = acte manuel** sur demande valide reçue hors outil (crédit « Renouvellement » → report d'un an, F-24) ; `ne_pas_renouveler` (motif interne **obligatoire**, trace `{date, échéance, motif}`, e-mail sobre sans le motif) ; renouvellement tardif ré-ouvre ; export dossiers enrichi | 94–104 |
+| **F-30/RG-54** | **Échéance annuelle du PMV** : posée à la pré-inscription (crédit initial + 1 an, `date_echeance`) ; alerte **J−7** (`PREAVIS_ECHEANCE_JOURS`) + onglet « Échéances » (`echeances()` : à traiter / à venir / non renouvelés) ; **renouvellement = acte manuel** sur demande valide reçue hors outil (crédit « Renouvellement » → report d'un an, F-24 ; **NDD retenu mis à jour** si le PFD a changé de niveau — RG-13, PFD principal synchronisé, changement journalisé et porté par l'e-mail) ; `ne_pas_renouveler` (motif interne **obligatoire**, trace `{date, échéance, motif}`, e-mail sobre sans le motif) ; renouvellement tardif ré-ouvre ; export dossiers enrichi | 94–107 |
 | F-22/RG-52/RG-53 | `payer_lot` : tout passage en payé (unitaire, partiel → reliquat recrédité, ou lot `/api/paiements`) **génère un bordereau par bénéficiaire** ; `executer_bordereau` trace le passage en banque ; file **groupée par bénéficiaire** | 43, 48–49, 51, 61–68 |
 | F-23/RG-44 | `valider` (**partiel automatique** = min(demandé, disponible), **engage**, bascule en file des paiements), `refuser` (motif), `demander_piece`/`redeposer`, `marquer_payee` via bordereau | 57–59 |
 | F-24 | E-mails automatiques (demande au pro, acceptation, paiement **avec référence du bordereau**, validation partielle, refus) — **simulés**, journal consultable, **liens cliquables** | 50 + onglet E-mails |
@@ -137,15 +137,15 @@ inspiré des auto-diagnostics associatifs, sans reprise de leurs contenus).
 ```bash
 python3 mpa_api.py            # http://127.0.0.1:8765/  (shell servi sur /)
 python3 mpa_core.py           # scénario console du cycle V1 complet
-python3 nonreg_v1.py          # la spécification exécutable (104 vérifications)
+python3 nonreg_v1.py          # la spécification exécutable (107 vérifications)
 ```
 Render : pousser ces fichiers (racine), Blueprint `render.yaml` — inchangé. Après
 déploiement : « Réinitialiser » dans le shell.
 
 ## Règle d'or pour toute évolution
 
-Toute modification doit laisser `nonreg_v1.py` (104 vérifications) et `render_v1.py`
-(49 vues, 78 assertions) **verts** — c'est ainsi que cette V1 a été validée, en plus
+Toute modification doit laisser `nonreg_v1.py` (107 vérifications) et `render_v1.py`
+(49 vues, 79 assertions) **verts** — c'est ainsi que cette V1 a été validée, en plus
 de cinq parcours complets en navigateur réel (Playwright) : le circuit pro par
 lien (demande → e-mail → chiffrage → acceptation → consigne de facturation →
 facture reçue → file de paiement), le circuit gestionnaire (instruction groupée

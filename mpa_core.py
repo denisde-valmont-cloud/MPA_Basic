@@ -53,7 +53,9 @@ RG-53   Montant payé au pro ≤ montant engagé ; la facture (hors outil) porte
 RG-54   Le RENOUVELLEMENT du PMV est un acte manuel du gestionnaire,
         conditionné à une demande de renouvellement reçue et jugée valide
         (document hors outil) : crédit « Renouvellement » (montant libre) qui
-        reporte l'échéance d'un an. Le NON-RENOUVELLEMENT est tracé (motif
+        reporte l'échéance d'un an ; le gestionnaire met à jour le NDD retenu
+        si le PFD a changé de niveau (1–4, RG-13 — PFD principal synchronisé,
+        changement journalisé et porté par l'e-mail F-24). Le NON-RENOUVELLEMENT est tracé (motif
         obligatoire) et notifié à l'assuré-aidant. AUCUN recrédit automatique ;
         l'outil notifie le gestionnaire PREAVIS_ECHEANCE_JOURS avant
         l'échéance (F-30). Effets du non-renouvellement sur le solde : A-11.
@@ -618,11 +620,32 @@ class MoteurDossiers:
                      "Votre PMV devient alors utilisable.")
         return a
 
-    # — F-21 : crédit manuel · F-30/RG-54 : renouvellement sur demande valide —
-    def crediter(self, assure_id, montant, motif, commentaire=""):
+    # — F-21 : crédit manuel · F-30/RG-54 : renouvellement sur demande valide,
+    #   avec mise à jour du NDD retenu si le PFD a changé de niveau (RG-13) —
+    def crediter(self, assure_id, montant, motif, commentaire="", ndd=None):
+        a = self.s.assures.get(assure_id)
+        if a is None:
+            raise KeyError(f"Dossier introuvable : {assure_id}")
+        changement_ndd, nd = "", None
+        if motif == "Renouvellement" and ndd not in (None, ""):
+            try:
+                nd = int(ndd)
+            except (TypeError, ValueError):
+                raise ValueError("NDD invalide : entier attendu (RG-13, NDD 1–4).")
+            if nd not in NDD or not NDD[nd].eligible:
+                raise ValueError(f"NDD {nd} non éligible : saisie refusée (RG-13, NDD 1–4).")
+            if nd != a.ndd:
+                changement_ndd = f"NDD retenu : {a.ndd} → {nd}"
+        comm = (commentaire or "").strip()
+        if changement_ndd:
+            comm = f"{comm} · {changement_ndd}" if comm else changement_ndd
         env = self.s.pmv(assure_id)
-        env.crediter(D(montant), motif, commentaire)
-        a = self.s.assures[assure_id]
+        env.crediter(D(montant), motif, comm)      # contrôle le motif/montant AVANT toute mutation du dossier
+        if changement_ndd:
+            a.ndd = nd
+            for pfd in a.aides:                    # le NDD retenu suit le PFD de référence (RG-20/21)
+                if pfd.principal:
+                    pfd.ndd = nd
         if motif == "Renouvellement":
             base = a.date_echeance or _today()
             a.date_echeance = (datetime.date.fromisoformat(base)
@@ -631,7 +654,9 @@ class MoteurDossiers:
             a.non_renouvellement = {}
             self.s.email(a.email, f"[MPA] Votre PMV est renouvelé — {a.id}",
                          f"Votre Pouvoir Mon Village est renouvelé : {eur(D(montant))} sont "
-                         f"crédités. Votre garantie court désormais jusqu'au {a.date_echeance}.")
+                         f"crédités. Votre garantie court désormais jusqu'au {a.date_echeance}."
+                         + (f" Le niveau de dépendance retenu pour votre proche est désormais "
+                            f"le NDD {nd}." if changement_ndd else ""))
         return a
 
     # — F-30/RG-54 : non-renouvellement tracé (motif obligatoire), notifié —

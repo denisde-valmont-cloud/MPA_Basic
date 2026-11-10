@@ -1724,14 +1724,14 @@ function gModal(){
     bloquer:{titre:"Bloquer le PMV",note:"Plus aucun devis, engagement ni remboursement. Les engagements en cours restent honorés ; consultation et orientation accessibles (F-27, RG-50).",btn:"Bloquer",cls:"bad"},
     commenter:{titre:"Commenter le mouvement",note:"Commentaire libre, visible par l'assuré-aidant dans son historique (F-26).",btn:"Enregistrer",cls:"blue"},
     crediter:{titre:"Créditer le PMV",note:"Crédit initial, renouvellement (reporte l'échéance d'un an — RG-54) ou correction (F-21/F-30). Tout crédit est journalisé et irréversible — une erreur se corrige par un mouvement inverse tracé (correction négative).",btn:"Créditer",cls:"blue"},
-    renouveler:{titre:"Renouveler le PMV",note:"À n'utiliser qu'après réception d'une demande de renouvellement VALIDE (document hors outil — RG-54). Le crédit reporte l'échéance d'un an et l'assuré-aidant est notifié (F-24). Indiquez en commentaire la date et la référence de la demande reçue.",btn:"Renouveler le PMV",cls:"teal"},
+    renouveler:{titre:"Renouveler le PMV",note:"À n'utiliser qu'après réception d'une demande de renouvellement VALIDE (document hors outil — RG-54). Le crédit reporte l'échéance d'un an et l'assuré-aidant est notifié (F-24). Si le PFD a changé de niveau, mettez à jour le NDD retenu (1–4 — RG-13) : le changement est journalisé et porté par l'e-mail. Indiquez en commentaire la date et la référence de la demande reçue.",btn:"Renouveler le PMV",cls:"teal"},
     nonrenouveler:{titre:"Ne pas renouveler",note:"Décision tracée et notifiée à l'assuré-aidant (le motif reste interne). Motif obligatoire : aucune demande de renouvellement reçue, demande non valide… (RG-54). Un renouvellement tardif restera possible sur demande valide.",btn:"Confirmer le non-renouvellement",cls:"bad"},
   }[GM.kind];
   if(!cfg) return "";
   const extra=(GM.kind==="crediter"||GM.kind==="renouveler")
     ?`<div class="row" style="margin-bottom:8px">
         <div class="f" style="flex:0 1 150px"><label>Montant (€)</label><input class="in" id="gm-montant" value="${esc(GM.montant||"")}" placeholder="ex. 300 ou -50" style="font-weight:800"></div>
-        ${GM.kind==="renouveler"?"":`<div class="f" style="flex:0 1 180px"><label>Motif</label><select class="in" id="gm-motif"><option>Crédit initial</option><option>Renouvellement</option><option>Correction</option></select></div>`}
+        ${GM.kind==="renouveler"?`<div class="f" style="flex:0 1 260px"><label>NDD retenu (RG-13)</label><select class="in" id="gm-ndd">${[1,2,3,4].map(n=>`<option value="${n}" ${n===GM.ndd?"selected":""}>NDD ${n} — ${(NDD_FULL[n]||[""])[0]}${n===GM.ndd?" (actuel)":""}</option>`).join("")}</select></div>`:`<div class="f" style="flex:0 1 180px"><label>Motif</label><select class="in" id="gm-motif"><option>Crédit initial</option><option>Renouvellement</option><option>Correction</option></select></div>`}
       </div><div class="f"><label>Commentaire (journalisé — F-26)</label><input class="in" id="gm-comm" placeholder="${GM.kind==="renouveler"?"ex. Demande de renouvellement reçue le 05/11, valide":"ex. Correction d'une erreur de saisie du 02/11"}"></div>`
     :`<div class="f"><label>${GM.kind==="commenter"?"Commentaire":"Motif (obligatoire)"}</label>
        <textarea class="in" id="gm-motif-txt" rows="2" style="resize:vertical" placeholder="${GM.kind==='bloquer'?'ex. Suspicion d\\u2019usage hors objet (RG-49) — vérification en cours':(GM.kind==='nonrenouveler'?'ex. Aucune demande de renouvellement reçue à l’échéance':'…')}">${esc(GM.prefill||"")}</textarea></div>`;
@@ -1934,7 +1934,7 @@ document.addEventListener("click", async (e)=>{
       await refresh(); toast(`Dossier ${r.id} ouvert · PMV crédité · lien d'activation adressé (e-mail simulé)`); return; }
     if(act==="g-ech-ren"){
       const a0=gAssure(id)||{}, m0=(((a0.pmv||{}).mouvements)||[]).find(m=>m.libelle==="Crédit initial");
-      GM={kind:"renouveler",aid:id,montant:m0?String(m0.montant):""}; MODAL=gModal; render(); return; }
+      GM={kind:"renouveler",aid:id,montant:m0?String(m0.montant):"",ndd:a0.ndd}; MODAL=gModal; render(); return; }
     if(act==="g-ech-nonren"){ GM={kind:"nonrenouveler",aid:id}; MODAL=gModal; render(); return; }
     if(act==="g-crediter-open"){ GM={kind:"crediter",ref:null,aid:id}; MODAL=gModal; render(); return; }
     if(act==="g-bloquer-open"){ GM={kind:"bloquer",ref:null,aid:id}; MODAL=gModal; render(); return; }
@@ -1964,8 +1964,10 @@ document.addEventListener("click", async (e)=>{
         const motif=GM.kind==="renouveler"?"Renouvellement":(($("#gm-motif")&&$("#gm-motif").value)||"Crédit initial");
         const comm=($("#gm-comm")&&$("#gm-comm").value.trim())||"";
         if(!m||isNaN(parseFloat(m.replace(",",".")))){ toast("Montant invalide",true); return; }
-        const ax=await api("POST",`/api/assures/${GM.aid}/crediter`,{montant:m.replace(",","."),motif,commentaire:comm});
-        toast(motif==="Renouvellement"?`PMV renouvelé — échéance reportée au ${dateFR(ax.date_echeance)}, assuré-aidant notifié (F-24)`:"PMV crédité — mouvement journalisé, irréversible (F-21)"); }
+        const body2={montant:m.replace(",","."),motif,commentaire:comm};
+        if(GM.kind==="renouveler"&&$("#gm-ndd")) body2.ndd=$("#gm-ndd").value;
+        const ax=await api("POST",`/api/assures/${GM.aid}/crediter`,body2);
+        toast(motif==="Renouvellement"?`PMV renouvelé — échéance reportée au ${dateFR(ax.date_echeance)}${String(ax.ndd)!==String(GM.ndd)?`, NDD retenu : ${ax.ndd}`:""}, assuré-aidant notifié (F-24)`:"PMV crédité — mouvement journalisé, irréversible (F-21)"); }
       else if(GM.kind==="nonrenouveler"){ if(!txt){ toast("Motif obligatoire (RG-54)",true); return; }
         await api("POST",`/api/assures/${GM.aid}/non-renouvellement`,{motif:txt});
         toast("Non-renouvellement tracé — assuré-aidant notifié (F-24)"); }

@@ -450,7 +450,8 @@ class Handler(BaseHTTPRequestHandler):
                     if action == "crediter" and len(parts) == 4:
                         a = APP.dossiers.crediter(aid, body.get("montant"),
                                                   body.get("motif", "Crédit initial"),
-                                                  body.get("commentaire", ""))
+                                                  body.get("commentaire", ""),
+                                                  ndd=body.get("ndd"))
                         return self._json(assure_view(a, s))
 
                     if action == "bloquer" and len(parts) == 4:
