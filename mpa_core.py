@@ -1770,10 +1770,19 @@ def seed() -> Store:
     _lot = payer_lot(s, [d1.id], [], commentaire="Virement CERA du " + j(2))
     executer_bordereau(s, _lot["bordereau"].id)
 
-    # F-30 — échéances de démonstration : Claire à J−5 (fenêtre de préavis),
-    #        Léa lointaine (dossier récent)
-    claire.date_echeance = (datetime.date.today() + datetime.timedelta(days=5)).isoformat()
-    lea.date_echeance = (datetime.date.today() + datetime.timedelta(days=340)).isoformat()
+    # F-30 — échéances de démonstration, COHÉRENTES avec RG-54 : la date de
+    # préinscription est reculée pour que échéance = préinscription + 1 an,
+    # crédit initial et e-mail d'activation datés du jour de la préinscription.
+    #   Claire : préinscrite il y a 360 j → échéance à J+5 (fenêtre de préavis) ;
+    #   Léa    : préinscrite il y a 25 j  → échéance à J+340.
+    for _a, _jrest in ((claire, 5), (lea, 340)):
+        _pre = datetime.date.today() + datetime.timedelta(days=_jrest - DUREE_GARANTIE_JOURS)
+        _a.date_preinscription = _pre.isoformat()
+        _a.date_echeance = (_pre + datetime.timedelta(days=DUREE_GARANTIE_JOURS)).isoformat()
+        s.enveloppes[_a.id].mouvements[0].date = f"{_pre.isoformat()} 09:00"
+        for _m in s.emails:
+            if _m.objet == f"[MPA] Activez votre espace — dossier {_a.id}":
+                _m.date = f"{_pre.isoformat()} 09:00"
 
     # D02 — FACTURE REÇUE (= validation, RG-45) → FILE DES PAIEMENTS (F-22)
     d2 = mv_.demander(claire.id, "PR-87", "Coordonner les intervenants autour de Hugo.")
